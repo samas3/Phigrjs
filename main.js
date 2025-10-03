@@ -668,6 +668,7 @@ async function load(chart, data, music, image) {
     C.chart.info = await load_csv(chart);
     const [ chart_data, chart_info ] = await load_chart(data);
     C.chart.data = chart_data;
+    console.log(chart_data);
     if (chart_info) {
         C.chart.info = chart_info;
     }
@@ -724,7 +725,7 @@ async function load(chart, data, music, image) {
 
         init_speed_events(line.speedEvents);
         line.notes = merge_notes(line.notesAbove, line.notesBelow);
-        C.chart.data.numOfNotes += line.notes.length;
+        C.chart.data.numOfNotes += line.numOfNotes;
         init_note_fp(line.notes, line.speedEvents);
 
         for (const note of line.notes) {
@@ -794,8 +795,6 @@ async function load(chart, data, music, image) {
     }
 
     C.chart.data.click_effect_collection.sort((a, b) => a[1] - b[1]);
-
-    console.log(C);
 
     function start() {
         cv.requestFullscreen();

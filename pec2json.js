@@ -717,5 +717,5 @@ function parseRPE(pec, filename) {
 		result.judgeLineList.push(judgeLine);
 		result.numOfNotes += judgeLine.numOfNotes;
 	}
-	return { data: JSON.stringify(result), messages: warnings, info: info, line: line };
+	return { data: JSON.stringify(result), info: info, line: line };
 }
