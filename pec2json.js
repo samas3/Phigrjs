@@ -589,11 +589,12 @@ class LineRPE {
 			}
 			const note = {
 				type: i.type,
-				time: time + (i.isFake ? 1e9 : 0),
+				time: time,
 				positionX: i.positionX,
 				holdTime: i.holdTime,
 				speed: i.speed * (i.type === 3 ? v2 : 1),
 				floorPosition: Math.fround(v1 + v2 * v3 / this.bpm * 1.875),
+                isFake: i.isFake,
 			};
 			if (i.isAbove) {
 				result.notesAbove.push(note);
@@ -660,7 +661,7 @@ function parseRPE(pec, filename) {
 		if (i.notes) {
 			for (const note of i.notes) {
 				if (note.alpha === undefined) note.alpha = 255;
-                // isFake, size, yOffset, visibleTime, alpha
+                // size, yOffset, visibleTime, alpha
 				const type = [0, 1, 4, 2, 3].indexOf(note.type);
 				const time = bpmList.calc(note.startTime[0] + note.startTime[1] / note.startTime[2]);
 				const holdTime = bpmList.calc(note.endTime[0] + note.endTime[1] / note.endTime[2]) - time;

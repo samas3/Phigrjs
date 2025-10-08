@@ -22,17 +22,8 @@ const C = {
 
 class AnimationAudioController {
     constructor(audioElement) {
-        this.animationId = null;
         this.audioElement = audioElement;
-        this.isRunning = false;
         this.isPaused = false;
-        this.startTime = 0;
-        this.lastTime = 0;
-        this.elapsedTime = 0;
-        this.pausedDuration = 0;
-        this.pausedStartTime = 0;
-        this.audioStartTime = 0;
-        this.wasPlayingBeforePause = false;
 
         this.frameCount = 0;
         this.currentFps = 0;
@@ -41,17 +32,6 @@ class AnimationAudioController {
     
     start(updateCallback) {
         this.updateCallback = updateCallback;
-        this.isRunning = true;
-        this.isPaused = false;
-        
-        if (this.audioElement) {
-            this.audioElement.currentTime = 0;
-            this.audioElement.play().catch(e => console.error('Audio playback failed:', e));
-            this.audioStartTime = performance.now();
-        }
-        
-        this.startTime = performance.now();
-        this.lastTime = this.startTime;
         this.animationId = requestAnimationFrame(this.animate.bind(this));
 
         this.frameCount = 0;
@@ -60,71 +40,17 @@ class AnimationAudioController {
     }
     
     animate(currentTime) {
-        if (!this.isRunning) return;
-        
-        if (this.isPaused) {
-            if (this.pausedStartTime === 0) {
-                this.pausedStartTime = currentTime;
-                if (this.audioElement && !this.audioElement.paused) {
-                    this.wasPlayingBeforePause = true;
-                    this.audioElement.pause();
-                }
-            }
-            this.animationId = requestAnimationFrame(this.animate.bind(this));
-            return;
-        }
-        
-        if (this.pausedStartTime > 0) {
-            this.pausedDuration += currentTime - this.pausedStartTime;
-            this.pausedStartTime = 0;
-            
-            if (this.audioElement && this.wasPlayingBeforePause) {
-                this.audioElement.play().catch(e => console.error('Audio resume failed:', e));
-                this.wasPlayingBeforePause = false;
-            }
-        }
-        
-        const currentTimeAdjusted = currentTime - this.pausedDuration;
-        const deltaTime = currentTimeAdjusted - this.lastTime;
-        const totalTime = currentTimeAdjusted - this.startTime;
-        
-        this.lastTime = currentTimeAdjusted;
-        
         this.updateCurrentFps(currentTime);
-        
-        if (this.updateCallback) {
-            this.updateCallback(deltaTime, totalTime, this.currentFps);
-        }
-        
+        this.updateCallback(this.currentFps);
         this.animationId = requestAnimationFrame(this.animate.bind(this));
     }
-    
+
     pause() {
-        if (this.isRunning && !this.isPaused) {
-            this.isPaused = true;
-        }
+        this.audioElement.pause();
     }
     
     resume() {
-        if (this.isRunning && this.isPaused) {
-            this.isPaused = false;
-        }
-    }
-    
-    stop() {
-        if (this.animationId) {
-            cancelAnimationFrame(this.animationId);
-            this.animationId = null;
-        }
-        
-        if (this.audioElement) {
-            this.audioElement.pause();
-            this.audioElement.currentTime = 0;
-        }
-        
-        this.isRunning = false;
-        this.isPaused = false;
-        this.wasPlayingBeforePause = false;
+        this.audioElement.play();
     }
     
     togglePause() {
@@ -133,31 +59,16 @@ class AnimationAudioController {
         } else {
             this.pause();
         }
+        this.isPaused = !this.isPaused;
     }
     
-    getCurrentAudioTime() {
-        if (!this.audioElement) return 0;
-        
-        if (this.isPaused) {
-            return this.audioElement.currentTime;
-        } else {
-            const elapsedSinceStart = (performance.now() - this.audioStartTime) / 1000;
-            return this.audioElement.currentTime + elapsedSinceStart;
-        }
-    }
-
     updateCurrentFps(currentTime) {
         this.frameCount++;
-        
         if (currentTime - this.lastFpsUpdate >= 1000) {
-            this.currentFps = Math.round((this.frameCount * 1000) / (currentTime - this.lastFpsUpdate));
+            this.currentFps = (this.frameCount * 1000) / (currentTime - this.lastFpsUpdate);
             this.frameCount = 0;
             this.lastFpsUpdate = currentTime;
         }
-    }
-    
-    getCurrentFps() {
-        return this.currentFps;
     }
 }
 
@@ -434,7 +345,7 @@ const cv_put_color = (cv, color) => {
 
 let controller;
 const render = () => {
-    controller.start((deltaTime, totalTime, fps) => {
+    controller.start((fps) => {
         const t = C.chart.music.currentTime - C.chart.data.offset;
         const [w, h] = [cv.width, cv.height];
         const note_width = w * 0.1234375;
@@ -451,7 +362,7 @@ const render = () => {
 
         ctx.fillTextEx(C.chart.info.Name, 0.02 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom left');
         ctx.fillTextEx(C.chart.info.Level, 0.98 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom right');
-        ctx.fillTextEx(fps, 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'middle right');
+        ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'middle right');
 
         for (const line of C.chart.data.judgeLineList) {
             let [ lineRotate, lineX, lineY, lineAlpha ] = line.get_state(t);
@@ -466,13 +377,14 @@ const render = () => {
             const linefp = get_fp(beatt, line.speedEvents);
 
             for (const note of line.notes) {
-                if (note.scored) combo++;
-                if (note.sect < t && !note.clicked) {
+                if (!note.isFake && note.scored) combo++;
+
+                if (!note.isFake && note.sect < t && !note.clicked) {
                     play_sound(C.click_sounds[note.type]);
                     note.clicked = true;
                 }
 
-                if ((!note.is_hold && note.sect < t) || (note.is_hold && note.hold_end_time < t)) {
+                if (!note.isFake && (!note.is_hold && note.sect < t) || (note.is_hold && note.hold_end_time < t)) {
                     note.scored = true;
                     continue;
                 }
@@ -781,7 +693,7 @@ async function load(chart, data, music, image) {
                 return this.get_click_effect();
             };
 
-            C.chart.data.click_effect_collection.push([ note, note.sect ]);
+            if (!note.isFake) C.chart.data.click_effect_collection.push([ note, note.sect ]);
 
             if (note.is_hold) {
                 const dt = 30 / line.bpm;
