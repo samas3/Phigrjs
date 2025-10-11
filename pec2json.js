@@ -479,8 +479,8 @@ class LineRPE {
 		this.eventLayers = [];
 		if (!isNaN(bpm)) this.bpm = bpm;
 	}
-	pushNote(type, time, positionX, holdTime, speed, isAbove, isFake) {
-		this.notes.push({ type, time, positionX, holdTime, speed, isAbove, isFake });
+	pushNote(type, time, positionX, holdTime, speed, isAbove, isFake, size) {
+		this.notes.push({ type, time, positionX, holdTime, speed, isAbove, isFake, size });
 	}
 	setId(id = NaN) {
 		this.id = id;
@@ -595,6 +595,7 @@ class LineRPE {
 				speed: i.speed * (i.type === 3 ? v2 : 1),
 				floorPosition: Math.fround(v1 + v2 * v3 / this.bpm * 1.875),
                 isFake: i.isFake,
+                size: i.size
 			};
 			if (i.isAbove) {
 				result.notesAbove.push(note);
@@ -655,19 +656,20 @@ function parseRPE(pec, filename) {
 		if (i.zOrder === undefined) i.zOrder = 0;
 		if (i.bpmfactor === undefined) i.bpmfactor = 1;
 		if (i.father === undefined) i.father = -1;
-        // isCover, zOrder, bpmfactor
-		const lineRPE = new LineRPE(bpmList.baseBpm);
+        // isCover, zOrder
+		const lineRPE = new LineRPE(bpmList.baseBpm / i.bpmfactor);
 		lineRPE.setId(i.LineId);
 		if (i.notes) {
 			for (const note of i.notes) {
 				if (note.alpha === undefined) note.alpha = 255;
-                // size, yOffset, visibleTime, alpha
+				if (note.size === undefined) note.size = 1;
+                // yOffset, visibleTime, alpha
 				const type = [0, 1, 4, 2, 3].indexOf(note.type);
 				const time = bpmList.calc(note.startTime[0] + note.startTime[1] / note.startTime[2]);
 				const holdTime = bpmList.calc(note.endTime[0] + note.endTime[1] / note.endTime[2]) - time;
 				const speed = note.speed;
 				const positionX = note.positionX / 75.375;
-				lineRPE.pushNote(type, time, positionX, holdTime, speed, note.above === 1, note.isFake !== 0);
+				lineRPE.pushNote(type, time, positionX, holdTime, speed, note.above === 1, note.isFake !== 0, note.size);
 			}
 		}
 		for (const e of i.eventLayers) {

@@ -20,7 +20,7 @@ const C = {
     hit_fx_imgs: []
 };
 
-class AnimationAudioController {
+class AnimationController {
     constructor(audioElement) {
         this.audioElement = audioElement;
         this.isPaused = false;
@@ -343,7 +343,15 @@ const cv_put_color = (cv, color) => {
     return cv;
 };
 
+const prettify_time = (t) => {
+    let m = Math.floor(t / 60);
+    let s = Math.floor(t % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+};
+
 let controller;
+let settings;
+
 const render = () => {
     controller.start((fps) => {
         const t = C.chart.music.currentTime - C.chart.data.offset;
@@ -362,7 +370,17 @@ const render = () => {
 
         ctx.fillTextEx(C.chart.info.Name, 0.02 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom left');
         ctx.fillTextEx(C.chart.info.Level, 0.98 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom right');
-        ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'middle right');
+        if (settings.showFps) {
+            ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'middle right');
+        }
+
+        let statusText = prettify_time(C.chart.music.currentTime) + '/' + prettify_time(C.chart.music.duration);
+        if (controller.isPaused) {
+            statusText += ' Paused'
+        }
+        if (settings.showTiming) {
+            ctx.fillTextEx(statusText, 0.01 * w, 0.02 * h, `${0.02 * h}px Saira`, 'top left');
+        }
 
         for (const line of C.chart.data.judgeLineList) {
             let [ lineRotate, lineX, lineY, lineAlpha ] = line.get_state(t);
@@ -408,7 +426,7 @@ const render = () => {
                 const this_note_width = note_width * (note.morebets ? (
                     C.note_head_imgs[note.type][1].width
                     / C.note_head_imgs[note.type][0].width
-                ) : 1.0);
+                ) : 1.0) * note.size;
 
                 const this_note_head_height = this_note_width / note_head_img.width * note_head_img.height;
                 const note_atline_pos = rotate_point(lineX, lineY, note.positionX * C.units.pgrw * w, lineRotate);
@@ -587,7 +605,7 @@ async function load(chart, data, music, image) {
     C.chart.data = regulate_chart(C.chart.data);
     C.chart.music = await load_audioele(music);
     C.chart.image = get_blur_img(await load_img(image), 0.05);
-    controller = new AnimationAudioController(C.chart.music);
+    controller = new AnimationController(C.chart.music);
 
     C.note_head_imgs = {
         [C.note.tap]: [C.note_imgs.click, C.note_imgs.click_mh],
@@ -639,8 +657,8 @@ async function load(chart, data, music, image) {
         line.notes = merge_notes(line.notesAbove, line.notesBelow);
         C.chart.data.numOfNotes += line.numOfNotes;
         init_note_fp(line.notes, line.speedEvents);
-
         for (const note of line.notes) {
+            console.log(note)
             note.sect = line.beat2sec(note.time);
             note.secht = line.beat2sec(note.holdTime);
             note.hold_end_time = note.sect + note.secht;
@@ -733,6 +751,39 @@ async function load(chart, data, music, image) {
 };
 
 const $ = s => document.querySelector(s);
+
+function getSettings() {
+    const settings = {};
+    const inputs = document.querySelectorAll("#settings-modal input");
+    
+    inputs.forEach(input => {
+        switch(input.type) {
+            case "range":
+            case "number":
+                settings[input.id] = parseFloat(input.value);
+                break;
+            case "checkbox":
+                settings[input.id] = input.checked;
+                break;
+            default:
+                settings[input.id] = input.value;
+        }
+    });
+    
+    return settings;
+}
+
+// 设置按钮点击事件
+$("#settings-button").onclick = () => {
+    $("#settings-modal").style.display = "flex";
+};
+
+// 关闭设置按钮点击事件
+$("#close-settings").onclick = () => {
+    $("#settings-modal").style.display = "none";
+    console.log("Current settings:", getSettings());
+};
+
 $("#load-button").onclick = () => {
     const infoFile = $("#chart-file").files[0];
     const chartFile = $("#data-file").files[0];
@@ -753,5 +804,6 @@ $("#load-button").onclick = () => {
     const musicUrl = URL.createObjectURL(musicFile);
     const imageUrl = URL.createObjectURL(imageFile);
 
+    settings = getSettings();
     load(infoUrl, chartUrl, musicUrl, imageUrl);
 };
