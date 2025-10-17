@@ -19,6 +19,7 @@ const C = {
     chart: {},
     hit_fx_imgs: []
 };
+const $ = s => document.querySelector(s);
 
 class AnimationController {
     constructor(audioElement) {
@@ -75,6 +76,12 @@ class AnimationController {
 const cv = document.querySelector("#main-canvas");
 const ctx = cv.getContext("2d");
 const actx = new AudioContext();
+const loadingOverlay = $("#loading-overlay");
+const loadingMessage = $("#loading-message");
+
+const setLoadingMessage = message => {
+    loadingMessage.textContent = message;
+};
 
 const load_audio = async url => {
     const resp = await fetch(url);
@@ -186,7 +193,15 @@ const load_audioele = async url => {
     return audio;
 };
 
-const linear = (t, st, et, sv, ev) => sv + (t - st) / (et - st) * (ev - sv);
+const easing = (t, st, et, sv, ev, type = 1, el = 0, er = 1) => {
+    if (t <= st) return sv;
+    if (t >= et) return ev;
+    let progress = (t - st) / (et - st);
+    progress = el + (er - el) * progress;
+    progress = Math.min(1, Math.max(0, progress));
+
+    return sv + (ev - sv) * tween[type](progress);
+}
 
 const find_event = (t, es) => {
     let l = 0, r = es.length - 1;
@@ -234,15 +249,25 @@ const init_note_fp = (notes, ses) => {
     }
 };
 
-const get_event_val = (t, es, sn, en) => {
+const get_event_val = (t, es, sn = "start", en = "end") => {
     const i = find_event(t, es);
     if (i === -1) {
-        return 0.0;
+        return null;
     }
 
     const e = es[i];
+    if (!(e[sn] instanceof Number)) {
+        return e[sn];
+    }
+    if (e[sn] instanceof Array) {
+        const result = [];
+        for (let idx = 0; idx < e[sn].length; idx++) {
+            result.push(easing(t, e.startTime, e.endTime, e[sn][idx], e[en][idx], e.easingType, e.easingLeft, e.easingRight));
+        }
+        return result;
+    }
 
-    return linear(t, e.startTime, e.endTime, e[sn], e[en]);
+    return easing(t, e.startTime, e.endTime, e[sn], e[en], e.easingType || 1, e.easingLeft || 0, e.easingRight || 1);
 };
 
 const get_fp = (t, es) => {
@@ -264,32 +289,34 @@ const rotate_point = (x, y, r, deg) => {
 };
 
 const fill_event = events => {
-    if (events.length === 0) return;
+    if (events.length === 0) return [];
+    const result = [];
     if (events[0].startTime > 0) {
-        events.unshift({
+        result.push({
             startTime: 0,
             endTime: events[0].startTime,
             start: events[0].start,
             end: events[0].start,
-            start2: events[0].start2 !== null ? events[0].start2 : null,
-            end2: events[0].start2 !== null ? events[0].start2 : null
+            start2: events[0].start2,
+            end2: events[0].start2
         });
     }
     events.forEach((e, i) => {
+        result.push(e);
         if (i === events.length - 1) return;
         if (e.endTime < events[i + 1].startTime) {
-            events.splice(i + 1, 0, {
+            result.push({
                 startTime: e.endTime,
                 endTime: events[i + 1].startTime,
                 start: e.end,
                 end: events[i + 1].start,
-                start2: e.end2 !== null ? e.end2 : null,
-                end2: events[i + 1].start2 !== null ? events[i + 1].start2 : null
+                start2: e.end2,
+                end2: events[i + 1].start2
             });
         }
     });
     const last = events[events.length - 1];
-    events.push({
+    result.push({
         startTime: last.endTime,
         endTime: 1e9,
         start: last.end,
@@ -297,6 +324,7 @@ const fill_event = events => {
         start2: last.end2 !== null ? last.end2 : null,
         end2: last.end2 !== null ? last.end2 : null
     });
+    return result;
 }
 
 const regulate_chart = chart => {
@@ -305,10 +333,14 @@ const regulate_chart = chart => {
         line.judgeLineRotateEvents.sort((a, b) => a.startTime - b.startTime);
         line.judgeLineMoveEvents.sort((a, b) => a.startTime - b.startTime);
         line.judgeLineDisappearEvents.sort((a, b) => a.startTime - b.startTime);
-        fill_event(line.speedEvents);
-        fill_event(line.judgeLineRotateEvents);
-        fill_event(line.judgeLineMoveEvents);
-        fill_event(line.judgeLineDisappearEvents);
+        line.colorEvents.sort((a, b) => a.startTime - b.startTime);
+        line.textEvents.sort((a, b) => a.startTime - b.startTime);
+        line.speedEvents = fill_event(line.speedEvents);
+        line.judgeLineRotateEvents = fill_event(line.judgeLineRotateEvents);
+        line.judgeLineMoveEvents = fill_event(line.judgeLineMoveEvents);
+        line.judgeLineDisappearEvents = fill_event(line.judgeLineDisappearEvents);
+        line.colorEvents = fill_event(line.colorEvents);
+        line.textEvents = fill_event(line.textEvents);
     }
     return chart;
 };
@@ -350,7 +382,6 @@ const prettify_time = (t) => {
 };
 
 let controller;
-let settings;
 
 const render = () => {
     controller.start((fps) => {
@@ -368,29 +399,33 @@ const render = () => {
         ctx.fillRectEx(0, 0, t / C.chart.music.duration * w, 2 * h * C.linew, 'rgba(145, 145, 145, 0.5)');
         ctx.fillRectEx(t / C.chart.music.duration * w, 0, 0.5 * h * C.linew, 2 * h * C.linew, "rgba(255, 255, 255, 0.6)");
 
-        ctx.fillTextEx(C.chart.info.Name, 0.02 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom left');
-        ctx.fillTextEx(C.chart.info.Level, 0.98 * w, 0.97 * h, `${0.03 * h}px Saira`, 'bottom right');
-        if (settings.showFps) {
-            ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'middle right');
+        ctx.fillTextEx(C.chart.info.Name, 0.02 * w, 0.97 * h, `${0.03 * h}px Saira`, 'white', 'bottom left');
+        ctx.fillTextEx(C.chart.info.Level, 0.98 * w, 0.97 * h, `${0.03 * h}px Saira`, 'white', 'bottom right');
+        if (C.settings.showFps) {
+            ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'white', 'middle right');
         }
 
         let statusText = prettify_time(C.chart.music.currentTime) + '/' + prettify_time(C.chart.music.duration);
         if (controller.isPaused) {
             statusText += ' Paused'
         }
-        if (settings.showTiming) {
-            ctx.fillTextEx(statusText, 0.01 * w, 0.02 * h, `${0.02 * h}px Saira`, 'top left');
+        if (C.settings.showTiming) {
+            ctx.fillTextEx(statusText, 0.01 * w, 0.02 * h, `${0.02 * h}px Saira`, 'white', 'top left');
         }
 
         for (const line of C.chart.data.judgeLineList) {
-            let [ lineRotate, lineX, lineY, lineAlpha ] = line.get_state(t);
+            let [ texture, shown, lineRotate, lineX, lineY, lineAlpha, color ] = line.get_state(t);
             lineX *= w; lineY *= h;
             const lineDrawPos = [
                 ...rotate_point(lineX, lineY, h * C.lineh, lineRotate),
                 ...rotate_point(lineX, lineY, h * C.lineh, lineRotate + 180),
             ];
 
-            ctx.drawLine(...lineDrawPos, h * C.linew, `rgba(${C.pcolor.join(", ")}, ${lineAlpha})`);
+            if (shown) {
+                ctx.drawLine(...lineDrawPos, h * C.linew, `rgba(${(color || C.pcolor).join(", ")}, ${lineAlpha})`);
+            } else {
+                ctx.fillTextEx(texture, lineX, lineY, `${0.05 * h}px Saira`, `rgba(${(color || [255, 255, 255]).join(", ")}, ${lineAlpha})`, 'middle center');
+            }
             const beatt = line.sec2beat(t);
             const linefp = get_fp(beatt, line.speedEvents);
 
@@ -514,12 +549,13 @@ const render = () => {
             }
         }
 
+        ctx.fillStyle = 'white';
         if (combo >= 3) {
-            ctx.fillTextEx(`${combo}`, 0.5 * w, 0.02 * h, `${0.06 * h}px Saira`, 'top center');
-            ctx.fillTextEx('COMBO', 0.5 * w, 0.08 * h, `${0.02 * h}px Saira`, 'top center');
+            ctx.fillTextEx(`${combo}`, 0.5 * w, 0.02 * h, `${0.06 * h}px Saira`, 'white', 'top center');
+            ctx.fillTextEx('COMBO', 0.5 * w, 0.08 * h, `${0.02 * h}px Saira`, 'white', 'top center');
         }
         score = Math.floor(combo * 1000000 / C.chart.data.numOfNotes) + '';
-        ctx.fillTextEx(score.padStart(7, '0'), 0.98 * w, 0.02 * h, `${0.04 * h}px Saira`, 'top right');
+        ctx.fillTextEx(score.padStart(7, '0'), 0.98 * w, 0.02 * h, `${0.04 * h}px Saira`, 'white', 'top right');
     });
 };
 
@@ -543,10 +579,10 @@ CanvasRenderingContext2D.prototype.fillRectEx = function (x, y, w, h, c) {
     this.restore();
 }; 
 
-CanvasRenderingContext2D.prototype.fillTextEx = function (t, x, y, f, align = 'top left') {
+CanvasRenderingContext2D.prototype.fillTextEx = function (t, x, y, f, color = 'white', align = 'top left') {
     this.save();
     this.font = f;
-    this.fillStyle = "white";
+    this.fillStyle = color;
     const [baseline, alignh] = align.split(' ');
     this.textBaseline = baseline;
     this.textAlign = alignh;
@@ -569,9 +605,10 @@ CanvasRenderingContext2D.prototype.drawBCRotateImage = function (img, x, y, w, h
     this.drawImage(img, -w / 2, -h, w, h);
     this.restore();
 };
-async function load(chart, data, music, image) {
+async function load(chart, data, music, image, settings) {
     $('#selector').remove();
-
+    
+    setLoadingMessage('Loading resources...');
     cv.width = document.body.clientWidth;
     cv.height = document.body.clientHeight;
 
@@ -595,6 +632,7 @@ async function load(chart, data, music, image) {
     [C.note_imgs.hold_head, C.note_imgs.hold_body, C.note_imgs.hold_tail] = clip_hold(C.note_imgs.hold, C.respack_info.holdAtlas);
     [C.note_imgs.hold_mh_head, C.note_imgs.hold_mh_body, C.note_imgs.hold_mh_tail] = clip_hold(C.note_imgs.hold_mh, C.respack_info.holdAtlasMH);
 
+    setLoadingMessage('Loading chart...');
     C.chart.info = await load_csv(chart);
     const [ chart_data, chart_info ] = await load_chart(data);
     C.chart.data = chart_data;
@@ -603,10 +641,13 @@ async function load(chart, data, music, image) {
         C.chart.info = chart_info;
     }
     C.chart.data = regulate_chart(C.chart.data);
+    setLoadingMessage('Loading music...');
     C.chart.music = await load_audioele(music);
+    setLoadingMessage('Loading image...');
     C.chart.image = get_blur_img(await load_img(image), 0.05);
     controller = new AnimationController(C.chart.music);
 
+    setLoadingMessage('Applying hitFx...');
     C.note_head_imgs = {
         [C.note.tap]: [C.note_imgs.click, C.note_imgs.click_mh],
         [C.note.drag]: [C.note_imgs.drag, C.note_imgs.drag_mh],
@@ -637,20 +678,28 @@ async function load(chart, data, music, image) {
     document.body.appendChild(C.chart.music);
 
     const note_sect_counter = new Map();
-
     C.chart.data.numOfNotes = 0;
 
+    setLoadingMessage('Parsing chart data...');
     for (const line of C.chart.data.judgeLineList) {
         line.sec2beat = function (t) {return t / (C.units.pgrbeat / this.bpm)};
         line.beat2sec = function (t) {return t * (C.units.pgrbeat / this.bpm)};
         line.get_state = function (t) {
             const beatt = this.sec2beat(t);
-            const rotate = get_event_val(beatt, line.judgeLineRotateEvents, "start", "end") * -1;
-            const x = get_event_val(beatt, line.judgeLineMoveEvents, "start", "end");
+            const rotate = get_event_val(beatt, line.judgeLineRotateEvents) * -1;
+            const x = get_event_val(beatt, line.judgeLineMoveEvents);
             const y = 1.0 - get_event_val(beatt, line.judgeLineMoveEvents, "start2", "end2");
-            const alpha = get_event_val(beatt, line.judgeLineDisappearEvents, "start", "end");
+            const alpha = get_event_val(beatt, line.judgeLineDisappearEvents);
+            let texture = "";
+            const text = get_event_val(beatt, line.textEvents);
+            if (text !== null) texture = text;
+            const color = get_event_val(beatt, line.colorEvents) || C.pcolor;
+            let shown = true;
+            if (line.textEvents && line.textEvents.length > 0) {
+                shown = false;
+            }
 
-            return [ rotate, x, y, alpha ];
+            return [ texture, shown, rotate, x, y, alpha, color ];
         };
 
         init_speed_events(line.speedEvents);
@@ -658,7 +707,6 @@ async function load(chart, data, music, image) {
         C.chart.data.numOfNotes += line.numOfNotes;
         init_note_fp(line.notes, line.speedEvents);
         for (const note of line.notes) {
-            console.log(note)
             note.sect = line.beat2sec(note.time);
             note.secht = line.beat2sec(note.holdTime);
             note.hold_end_time = note.sect + note.secht;
@@ -668,11 +716,12 @@ async function load(chart, data, music, image) {
             note.scored = false;
             note.master = line;
 
-            if (!note_sect_counter.has(note.sect)) {
-                note_sect_counter.set(note.sect, 0);
+            if (settings.hlEffect) {
+                if (!note_sect_counter.has(note.sect)) {
+                    note_sect_counter.set(note.sect, 0);
+                }
+                note_sect_counter.set(note.sect, note_sect_counter.get(note.sect) + 1);
             }
-
-            note_sect_counter.set(note.sect, note_sect_counter.get(note.sect) + 1);
         }
 
         delete line.notesAbove;
@@ -700,7 +749,7 @@ async function load(chart, data, music, image) {
                     };
                 });
                 this.get_click_effect = () => [ pars, t => {
-                    let [ lineRotate, lineX, lineY, _ ] = line.get_state(t);
+                    let [ texture, shown, lineRotate, lineX, lineY, alpha, color ] = line.get_state(t);
                     const pos = rotate_point(
                         lineX * w, lineY * h,
                         this.positionX * C.units.pgrw * w,
@@ -725,8 +774,15 @@ async function load(chart, data, music, image) {
     }
 
     C.chart.data.click_effect_collection.sort((a, b) => a[1] - b[1]);
+    C.settings = settings;
+    
+    setLoadingMessage('Finishing...');
 
-    function start() {
+
+    function start() {    
+        loadingOverlay.style.display = "none";
+        setLoadingMessage("");
+
         cv.requestFullscreen();
         C.chart.music.play();
         const font = new FontFace('Saira', 'url(/data/font.ttf)')
@@ -750,8 +806,6 @@ async function load(chart, data, music, image) {
     });
 };
 
-const $ = s => document.querySelector(s);
-
 function getSettings() {
     const settings = {};
     const inputs = document.querySelectorAll("#settings-modal input");
@@ -773,18 +827,17 @@ function getSettings() {
     return settings;
 }
 
-// 设置按钮点击事件
 $("#settings-button").onclick = () => {
     $("#settings-modal").style.display = "flex";
 };
 
-// 关闭设置按钮点击事件
 $("#close-settings").onclick = () => {
     $("#settings-modal").style.display = "none";
-    console.log("Current settings:", getSettings());
 };
 
 $("#load-button").onclick = () => {
+    const loadingOverlay = $("#loading-overlay");
+
     const infoFile = $("#chart-file").files[0];
     const chartFile = $("#data-file").files[0];
     const musicFile = $("#music-file").files[0];
@@ -804,6 +857,7 @@ $("#load-button").onclick = () => {
     const musicUrl = URL.createObjectURL(musicFile);
     const imageUrl = URL.createObjectURL(imageFile);
 
-    settings = getSettings();
-    load(infoUrl, chartUrl, musicUrl, imageUrl);
+    const settings = getSettings();
+    loadingOverlay.style.display = "flex";
+    load(infoUrl, chartUrl, musicUrl, imageUrl, settings);
 };

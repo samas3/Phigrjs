@@ -1,34 +1,3 @@
-const tween = [null,
-    pos => pos, //1
-	pos => Math.sin(pos * Math.PI / 2), //2
-	pos => 1 - Math.cos(pos * Math.PI / 2), //3
-	pos => 1 - (pos - 1) ** 2, //4
-	pos => pos ** 2, //5
-	pos => (1 - Math.cos(pos * Math.PI)) / 2, //6
-	pos => ((pos *= 2) < 1 ? pos ** 2 : -((pos - 2) ** 2 - 2)) / 2, //7
-	pos => 1 + (pos - 1) ** 3, //8
-	pos => pos ** 3, //9
-	pos => 1 - (pos - 1) ** 4, //10
-	pos => pos ** 4, //11
-	pos => ((pos *= 2) < 1 ? pos ** 3 : ((pos - 2) ** 3 + 2)) / 2, //12
-	pos => ((pos *= 2) < 1 ? pos ** 4 : -((pos - 2) ** 4 - 2)) / 2, //13
-	pos => 1 + (pos - 1) ** 5, //14
-	pos => pos ** 5, //15
-	pos => 1 - 2 ** (-10 * pos), //16
-	pos => 2 ** (10 * (pos - 1)), //17
-	pos => Math.sqrt(1 - (pos - 1) ** 2), //18
-	pos => 1 - Math.sqrt(1 - pos ** 2), //19
-	pos => (2.70158 * pos - 1) * (pos - 1) ** 2 + 1, //20
-	pos => (2.70158 * pos - 1.70158) * pos ** 2, //21
-	pos => ((pos *= 2) < 1 ? (1 - Math.sqrt(1 - pos ** 2)) : (Math.sqrt(1 - (pos - 2) ** 2) + 1)) / 2, //22
-	pos => pos < 0.5 ? (14.379638 * pos - 5.189819) * pos ** 2 : (14.379638 * pos - 9.189819) * (pos - 1) ** 2 + 1, //23
-	pos => 1 - 2 ** (-10 * pos) * Math.cos(pos * Math.PI / .15), //24
-	pos => 2 ** (10 * (pos - 1)) * Math.cos((pos - 1) * Math.PI / .15), //25
-	pos => ((pos *= 11) < 4 ? pos ** 2 : pos < 8 ? (pos - 6) ** 2 + 12 : pos < 10 ? (pos - 9) ** 2 + 15 : (pos - 10.5) ** 2 + 15.75) / 16, //26
-	pos => 1 - tween[26](1 - pos), //27
-	pos => (pos *= 2) < 1 ? tween[26](pos) / 2 : tween[27](pos - 1) / 2 + .5, //28
-	pos => pos < 0.5 ? 2 ** (20 * pos - 11) * Math.sin((160 * pos + 1) * Math.PI / 18) : 1 - 2 ** (9 - 20 * pos) * Math.sin((160 * pos + 1) * Math.PI / 18) //29
-];
 class LinePec {
 	constructor(bpm) {
 		this.bpm = 120;
@@ -472,12 +441,26 @@ class EventLayer {
 		this.speedEvents.push({ startTime, endTime, start, end });
 	}
 }
+class ExtendedEvent {
+	constructor() {
+		this.colorEvents = [];
+		this.textEvents = [];
+	}
+	pushColorEvent(startTime, endTime, start, end, easingType, easingLeft, easingRight) {
+		this.colorEvents.push({ startTime, endTime, start, end, easingType, easingLeft, easingRight });
+	}
+	pushTextEvent(startTime, endTime, start, end) {
+		this.textEvents.push({ startTime, endTime, start, end });
+	}
+}
 class LineRPE {
 	constructor(bpm) {
 		this.bpm = 120;
 		this.notes = [];
 		this.eventLayers = [];
 		if (!isNaN(bpm)) this.bpm = bpm;
+
+		this.extendedEvents = [];
 	}
 	pushNote(type, time, positionX, holdTime, speed, isAbove, isFake, size) {
 		this.notes.push({ type, time, positionX, holdTime, speed, isAbove, isFake, size });
@@ -512,14 +495,14 @@ class LineRPE {
 		this.speedEvents = toSpeedEvent(combineMultiEvents(events.map(i => i.speedEvents)));
 		this.settled = true;
 	}
-	fitFather(stack = [], onwarning = console.warn) {
+	fitFather(stack = []) {
 		if (!this.settled) this.preset();
 		if (stack.includes(this)) {
 			stack.map(i => i.setFather(null));
 			return;
 		}
 		if (this.father) {
-			this.father.fitFather(stack.concat(this), onwarning);
+			this.father.fitFather(stack.concat(this));
 			if (!this.father) return;
 			if (!this.merged) mergeFather(this, this.father);
 			this.merged = true;
@@ -537,7 +520,9 @@ class LineRPE {
 			notesBelow: [],
 			judgeLineDisappearEvents: [],
 			judgeLineMoveEvents: [],
-			judgeLineRotateEvents: []
+			judgeLineRotateEvents: [],
+			colorEvents: [],
+			textEvents: [],
 		};
 		for (const i of this.moveEvents) result.judgeLineMoveEvents.push({
 			startTime: i.startTime,
@@ -563,6 +548,28 @@ class LineRPE {
 			start2: 0,
 			end2: 0
 		});
+		
+		// extended events, parsed by simulator
+		for (const i of this.extendedEvents.colorEvents) {
+			result.colorEvents.push({
+				startTime: i.startTime,
+				endTime: i.endTime,
+				start: i.start,
+				end: i.end,
+				easingType: i.easingType || 1,
+				easingLeft: i.easingLeft || 0,
+				easingRight: i.easingRight || 1
+			});
+		}
+		for (const i of this.extendedEvents.textEvents) {
+			result.textEvents.push({
+				startTime: i.startTime,
+				endTime: i.endTime,
+				start: i.start,
+				end: i.end
+			});
+		}
+
 		let floorPos = 0;
 		const speedEvents = this.speedEvents;
 		for (let i = 0; i < speedEvents.length; i++) {
@@ -707,6 +714,19 @@ function parseRPE(pec, filename) {
 			}
 			lineRPE.eventLayers.push(layer);
 		}
+
+		const extended = new ExtendedEvent;
+		for (const j of (i.extended.colorEvents || [])) {
+			const startTime = bpmList.calc(j.startTime[0] + j.startTime[1] / j.startTime[2]);
+			const endTime = bpmList.calc(j.endTime[0] + j.endTime[1] / j.endTime[2]);
+			extended.pushColorEvent(startTime, endTime, j.start, j.end, j.easingType, j.easingLeft, j.easingRight)
+		}
+		for (const j of (i.extended.textEvents || [])) {
+			const startTime = bpmList.calc(j.startTime[0] + j.startTime[1] / j.startTime[2]);
+			const endTime = bpmList.calc(j.endTime[0] + j.endTime[1] / j.endTime[2]);
+			extended.pushTextEvent(startTime, endTime, j.start, j.end);
+		}
+		lineRPE.extendedEvents = extended;
 		i.judgeLineRPE = lineRPE;
 	}
 	for (const i of data.judgeLineList) {

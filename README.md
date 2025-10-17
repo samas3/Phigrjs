@@ -3,6 +3,9 @@
 ## 原作者
 项目原作者B站主页：[papFri](https://space.bilibili.com/3537119301601486)
 
+## 参考文档
+[Phira Document](https://teamflos.github.io/phira-docs/chart-standard/chart-format/index.html)
+
 ## 使用方法
 1. 确保已安装Python 3.x
 2. 运行命令启动本地服务器：
