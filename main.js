@@ -426,6 +426,11 @@ const render = () => {
             } else {
                 ctx.fillTextEx(texture, lineX, lineY, `${0.05 * h}px Saira`, `rgba(${(color || [255, 255, 255]).join(", ")}, ${lineAlpha})`, 'middle center');
             }
+
+            if (C.settings.showHitPoint) {
+                ctx.fillTextEx('' + line.id, lineX, lineY, `${0.03 * h}px Saira`, 'red', 'middle center');
+            }
+
             const beatt = line.sec2beat(t);
             const linefp = get_fp(beatt, line.speedEvents);
 
@@ -474,8 +479,12 @@ const render = () => {
                     ctx.drawCenterRotateImage(
                         note_head_img, ...note_head_pos,
                         this_note_width, this_note_head_height,
-                        note_draw_rotate
+                        note_draw_rotate, note.alpha / 255
                     );
+                }
+
+                if (C.settings.showHitPoint) {
+                    ctx.fillTextEx('' + note.id, ...note_head_pos, `${0.03 * h}px Saira`, 'red', 'middle center');
                 }
 
                 if (note.is_hold) {
@@ -549,7 +558,6 @@ const render = () => {
             }
         }
 
-        ctx.fillStyle = 'white';
         if (combo >= 3) {
             ctx.fillTextEx(`${combo}`, 0.5 * w, 0.02 * h, `${0.06 * h}px Saira`, 'white', 'top center');
             ctx.fillTextEx('COMBO', 0.5 * w, 0.08 * h, `${0.02 * h}px Saira`, 'white', 'top center');
@@ -590,10 +598,11 @@ CanvasRenderingContext2D.prototype.fillTextEx = function (t, x, y, f, color = 'w
     this.restore();
 };
 
-CanvasRenderingContext2D.prototype.drawCenterRotateImage = function (img, x, y, w, h, deg) {
+CanvasRenderingContext2D.prototype.drawCenterRotateImage = function (img, x, y, w, h, deg, alpha = 1) {
     this.save();
     this.translate(x, y);
     this.rotate(deg * Math.PI / 180);
+    this.globalAlpha *= alpha;
     this.drawImage(img, -w / 2, -h / 2, w, h);
     this.restore();
 };
@@ -605,9 +614,7 @@ CanvasRenderingContext2D.prototype.drawBCRotateImage = function (img, x, y, w, h
     this.drawImage(img, -w / 2, -h, w, h);
     this.restore();
 };
-async function load(chart, data, music, image, settings) {
-    $('#selector').remove();
-    
+async function init() {
     setLoadingMessage('Loading resources...');
     cv.width = document.body.clientWidth;
     cv.height = document.body.clientHeight;
@@ -631,22 +638,7 @@ async function load(chart, data, music, image, settings) {
 
     [C.note_imgs.hold_head, C.note_imgs.hold_body, C.note_imgs.hold_tail] = clip_hold(C.note_imgs.hold, C.respack_info.holdAtlas);
     [C.note_imgs.hold_mh_head, C.note_imgs.hold_mh_body, C.note_imgs.hold_mh_tail] = clip_hold(C.note_imgs.hold_mh, C.respack_info.holdAtlasMH);
-
-    setLoadingMessage('Loading chart...');
-    C.chart.info = await load_csv(chart);
-    const [ chart_data, chart_info ] = await load_chart(data);
-    C.chart.data = chart_data;
-    console.log(chart_data);
-    if (chart_info) {
-        C.chart.info = chart_info;
-    }
-    C.chart.data = regulate_chart(C.chart.data);
-    setLoadingMessage('Loading music...');
-    C.chart.music = await load_audioele(music);
-    setLoadingMessage('Loading image...');
-    C.chart.image = get_blur_img(await load_img(image), 0.05);
-    controller = new AnimationController(C.chart.music);
-
+    
     setLoadingMessage('Applying hitFx...');
     C.note_head_imgs = {
         [C.note.tap]: [C.note_imgs.click, C.note_imgs.click_mh],
@@ -673,6 +665,29 @@ async function load(chart, data, music, image, settings) {
             );
         }
     }
+    
+    window.onresize = () => {
+        cv.width = window.innerWidth;
+        cv.height = window.innerHeight;
+    };
+}
+async function load(chart, data, music, image, settings) {
+    $('#selector').remove();
+
+    setLoadingMessage('Loading chart...');
+    C.chart.info = await load_csv(chart);
+    const [ chart_data, chart_info ] = await load_chart(data);
+    C.chart.data = chart_data;
+    console.log(chart_data);
+    if (chart_info) {
+        C.chart.info = chart_info;
+    }
+    C.chart.data = regulate_chart(C.chart.data);
+    setLoadingMessage('Loading music...');
+    C.chart.music = await load_audioele(music);
+    setLoadingMessage('Loading image...');
+    C.chart.image = get_blur_img(await load_img(image), 0.05);
+    controller = new AnimationController(C.chart.music);
 
     C.chart.music.style.display = "none";
     document.body.appendChild(C.chart.music);
@@ -681,7 +696,7 @@ async function load(chart, data, music, image, settings) {
     C.chart.data.numOfNotes = 0;
 
     setLoadingMessage('Parsing chart data...');
-    for (const line of C.chart.data.judgeLineList) {
+    C.chart.data.judgeLineList.forEach((line, i) => {
         line.sec2beat = function (t) {return t / (C.units.pgrbeat / this.bpm)};
         line.beat2sec = function (t) {return t * (C.units.pgrbeat / this.bpm)};
         line.get_state = function (t) {
@@ -698,15 +713,15 @@ async function load(chart, data, music, image, settings) {
             if (line.textEvents && line.textEvents.length > 0) {
                 shown = false;
             }
-
             return [ texture, shown, rotate, x, y, alpha, color ];
         };
+        line.id = i;
 
         init_speed_events(line.speedEvents);
         line.notes = merge_notes(line.notesAbove, line.notesBelow);
         C.chart.data.numOfNotes += line.numOfNotes;
         init_note_fp(line.notes, line.speedEvents);
-        for (const note of line.notes) {
+        line.notes.forEach((note, i) => {
             note.sect = line.beat2sec(note.time);
             note.secht = line.beat2sec(note.holdTime);
             note.hold_end_time = note.sect + note.secht;
@@ -714,6 +729,7 @@ async function load(chart, data, music, image, settings) {
             note.is_hold = note.type === C.note.hold;
             note.clicked = false;
             note.scored = false;
+            note.id = `${line.id}_${i}`;
             note.master = line;
 
             if (settings.hlEffect) {
@@ -722,11 +738,11 @@ async function load(chart, data, music, image, settings) {
                 }
                 note_sect_counter.set(note.sect, note_sect_counter.get(note.sect) + 1);
             }
-        }
+        });
 
         delete line.notesAbove;
         delete line.notesBelow;
-    }
+    });
 
     for (const line of C.chart.data.judgeLineList) {
         for (const note of line.notes) {
@@ -774,9 +790,9 @@ async function load(chart, data, music, image, settings) {
     }
 
     C.chart.data.click_effect_collection.sort((a, b) => a[1] - b[1]);
-    C.settings = settings;
     
     setLoadingMessage('Finishing...');
+    C.settings = settings;
 
 
     function start() {    
@@ -793,11 +809,6 @@ async function load(chart, data, music, image, settings) {
         });
     };
     start();
-
-    window.onresize = () => {
-        cv.width = window.innerWidth;
-        cv.height = window.innerHeight;
-    };
 
     document.addEventListener('keydown', (e) => {
         if (e.code === 'Space') {
@@ -860,4 +871,8 @@ $("#load-button").onclick = () => {
     const settings = getSettings();
     loadingOverlay.style.display = "flex";
     load(infoUrl, chartUrl, musicUrl, imageUrl, settings);
+};
+
+window.onload = () => {
+    init();
 };
