@@ -446,6 +446,11 @@ const render = () => {
                     note.scored = true;
                     continue;
                 }
+                // judging end
+
+                if (note.sect - t > note.visibleTime) {
+                    continue;
+                }
 
                 let note_fp = (note.floorPosition - linefp) * C.units.pgrh * (C.units.pgrbeat / line.bpm) * h;
 
