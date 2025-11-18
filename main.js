@@ -25,10 +25,44 @@ class AnimationController {
     constructor(audioElement) {
         this.audioElement = audioElement;
         this.isPaused = false;
+        this.progressBar = $("#progress-bar");
+        this.progressContainer = $("#progress-container");
+        this.durationDisplay = $("#duration");
+        this.seekTimeDisplay = $("#seek-time");
 
         this.frameCount = 0;
         this.currentFps = 0;
         this.lastFpsUpdate = 0;
+
+        this.progressUpdated = false;
+
+        this.progressBar.addEventListener("input", () => {
+            if (this.audioElement.duration) {
+                const seekTime = this.audioElement.duration * (this.progressBar.value / 100);
+                this.seekTimeDisplay.textContent = `跳转到: ${this.formatTime(seekTime)}`;
+            }
+        });
+
+        this.progressBar.addEventListener("change", () => {
+            if (this.audioElement.duration) {
+                this.audioElement.currentTime = this.audioElement.duration * (this.progressBar.value / 100);
+                this.seekTimeDisplay.textContent = "";
+                this.progressUpdated = true;
+            }
+        });
+    }
+
+    formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    updateProgress() {
+        if (this.audioElement.duration) {
+            this.progressBar.value = (this.audioElement.currentTime / this.audioElement.duration) * 100;
+            this.durationDisplay.textContent = this.formatTime(this.audioElement.duration);
+        }
     }
     
     start(updateCallback) {
@@ -43,15 +77,23 @@ class AnimationController {
     animate(currentTime) {
         this.updateCurrentFps(currentTime);
         this.updateCallback(this.currentFps);
+        if (!this.isPaused) {
+            this.updateProgress();
+        }
         this.animationId = requestAnimationFrame(this.animate.bind(this));
     }
 
     pause() {
         this.audioElement.pause();
+        this.progressContainer.style.display = "block";
+        this.updateProgress();
     }
     
     resume() {
         this.audioElement.play();
+        this.progressContainer.style.display = "none";
+        
+        this.progressUpdated = false;
     }
     
     togglePause() {
@@ -289,7 +331,7 @@ const rotate_point = (x, y, r, deg) => {
 };
 
 const fill_event = events => {
-    if (events.length === 0) return [];
+    if (!events || events.length === 0) return [];
     const result = [];
     if (events[0].startTime > 0) {
         result.push({
@@ -333,8 +375,8 @@ const regulate_chart = chart => {
         line.judgeLineRotateEvents.sort((a, b) => a.startTime - b.startTime);
         line.judgeLineMoveEvents.sort((a, b) => a.startTime - b.startTime);
         line.judgeLineDisappearEvents.sort((a, b) => a.startTime - b.startTime);
-        line.colorEvents.sort((a, b) => a.startTime - b.startTime);
-        line.textEvents.sort((a, b) => a.startTime - b.startTime);
+        if (line.colorEvents) line.colorEvents.sort((a, b) => a.startTime - b.startTime);
+        if (line.textEvents) line.textEvents.sort((a, b) => a.startTime - b.startTime);
         line.speedEvents = fill_event(line.speedEvents);
         line.judgeLineRotateEvents = fill_event(line.judgeLineRotateEvents);
         line.judgeLineMoveEvents = fill_event(line.judgeLineMoveEvents);
@@ -435,6 +477,7 @@ const render = () => {
             const linefp = get_fp(beatt, line.speedEvents);
 
             for (const note of line.notes) {
+                if (controller.progressUpdated) note.scored = false;
                 if (!note.isFake && note.scored) combo++;
 
                 if (!note.isFake && note.sect < t && !note.clicked) {
@@ -448,7 +491,7 @@ const render = () => {
                 }
                 // judging end
 
-                if (note.sect - t > note.visibleTime) {
+                if (note.visibleTime && (note.sect - t > note.visibleTime)) {
                     continue;
                 }
 
@@ -471,7 +514,7 @@ const render = () => {
                 const this_note_width = note_width * (note.morebets ? (
                     C.note_head_imgs[note.type][1].width
                     / C.note_head_imgs[note.type][0].width
-                ) : 1.0) * note.size;
+                ) : 1.0);
 
                 const this_note_head_height = this_note_width / note_head_img.width * note_head_img.height;
                 const note_atline_pos = rotate_point(lineX, lineY, note.positionX * C.units.pgrw * w, lineRotate);
@@ -483,7 +526,7 @@ const render = () => {
                 if (draw_head) {
                     ctx.drawCenterRotateImage(
                         note_head_img, ...note_head_pos,
-                        this_note_width, this_note_head_height,
+                        this_note_width * (note.size || 1), this_note_head_height,
                         note_draw_rotate, note.alpha / 255
                     );
                 }
@@ -531,35 +574,37 @@ const render = () => {
             }
         }
 
-        const effect_dur = 0.5;
+        if(C.settings.hitEffect) {
+            const effect_dur = 0.5;
 
-        for (const [note, effect_t] of C.chart.data.click_effect_collection) {
-            if (effect_t > t) break;
-            if (effect_t + effect_dur < t) continue;
+            for (const [note, effect_t] of C.chart.data.click_effect_collection) {
+                if (effect_t > t) break;
+                if (effect_t + effect_dur < t) continue;
 
-            const p = (t - effect_t) / effect_dur;
-            const imi = Math.max(0, Math.min(C.hit_fx_imgs.length - 1, Math.floor(p * C.hit_fx_imgs.length)));
-            const im = C.hit_fx_imgs[imi];
-            const effect_size = note_width * 1.375 * 1.12;
-            const [ pars, pos_getter ] = note.get_click_effect(w, h);
-            const [ x, y ] = pos_getter(effect_t);
+                const p = (t - effect_t) / effect_dur;
+                const imi = Math.max(0, Math.min(C.hit_fx_imgs.length - 1, Math.floor(p * C.hit_fx_imgs.length)));
+                const im = C.hit_fx_imgs[imi];
+                const effect_size = note_width * 1.375 * 1.12;
+                const [ pars, pos_getter ] = note.get_click_effect(w, h);
+                const [ x, y ] = pos_getter(effect_t);
 
-            ctx.save();
-            ctx.globalAlpha *= C.palpha;
-            ctx.drawImage(
-                im,
-                x - effect_size / 2, y - effect_size / 2,
-                effect_size, effect_size
-            );
-            ctx.restore();
-
-            for (const paritem of pars) {
-                const [ rotate, size, r ] = paritem(p);
                 ctx.save();
-                ctx.translate(x, y);
-                const parcenter = rotate_point(0, 0, r, rotate);
-                ctx.fillRectEx(parcenter[0], parcenter[1], size, size, `rgba(${C.pcolor.join(", ")}, ${1.0 - p})`);
+                ctx.globalAlpha *= C.palpha;
+                ctx.drawImage(
+                    im,
+                    x - effect_size / 2, y - effect_size / 2,
+                    effect_size, effect_size
+                );
                 ctx.restore();
+
+                for (const paritem of pars) {
+                    const [ rotate, size, r ] = paritem(p);
+                    ctx.save();
+                    ctx.translate(x, y);
+                    const parcenter = rotate_point(0, 0, r, rotate);
+                    ctx.fillRectEx(parcenter[0], parcenter[1], size, size, `rgba(${C.pcolor.join(", ")}, ${1.0 - p})`);
+                    ctx.restore();
+                }
             }
         }
 
@@ -683,7 +728,6 @@ async function load(chart, data, music, image, settings) {
     C.chart.info = await load_csv(chart);
     const [ chart_data, chart_info ] = await load_chart(data);
     C.chart.data = chart_data;
-    console.log(chart_data);
     if (chart_info) {
         C.chart.info = chart_info;
     }
@@ -724,7 +768,6 @@ async function load(chart, data, music, image, settings) {
 
         init_speed_events(line.speedEvents);
         line.notes = merge_notes(line.notesAbove, line.notesBelow);
-        C.chart.data.numOfNotes += line.numOfNotes;
         init_note_fp(line.notes, line.speedEvents);
         line.notes.forEach((note, i) => {
             note.sect = line.beat2sec(note.time);
@@ -736,6 +779,8 @@ async function load(chart, data, music, image, settings) {
             note.scored = false;
             note.id = `${line.id}_${i}`;
             note.master = line;
+
+            C.chart.data.numOfNotes++;
 
             if (settings.hlEffect) {
                 if (!note_sect_counter.has(note.sect)) {
@@ -795,6 +840,8 @@ async function load(chart, data, music, image, settings) {
     }
 
     C.chart.data.click_effect_collection.sort((a, b) => a[1] - b[1]);
+
+    console.log(C.chart.data);
     
     setLoadingMessage('Finishing...');
     C.settings = settings;
@@ -876,6 +923,89 @@ $("#load-button").onclick = () => {
     const settings = getSettings();
     loadingOverlay.style.display = "flex";
     load(infoUrl, chartUrl, musicUrl, imageUrl, settings);
+};
+// Zip file processing function
+$("#zip-file").onchange = async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check if file is zip or pez
+    if (!file.name.toLowerCase().endsWith('.zip') && !file.name.toLowerCase().endsWith('.pez')) {
+        alert("Please select a .zip or .pez file");
+        return;
+    }
+
+    setLoadingMessage('Extracting zip file...');
+    loadingOverlay.style.display = "flex";
+
+    try {
+        const zip = new JSZip();
+        const zipData = await zip.loadAsync(file);
+        
+        // Find files with specific extensions
+        const files = {};
+        
+        for (const [filename, zipEntry] of Object.entries(zipData.files)) {
+            if (!zipEntry.dir) {
+                const ext = filename.toLowerCase().split('.').pop();
+                
+                // Check for chart files
+                if (ext === 'json' || ext === 'pec') {
+                    files.chart = { filename, zipEntry };
+                }
+                // Check for music files
+                else if (ext === 'ogg' || ext === 'mp3' || ext === 'wav') {
+                    files.music = { filename, zipEntry };
+                }
+                // Check for image files
+                else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+                    files.image = { filename, zipEntry };
+                }
+                // Check for chart info files
+                else if (ext === 'csv') {
+                    files.info = { filename, zipEntry };
+                }
+            }
+        }
+
+        // Create File objects from zip entries and populate file inputs
+        for (const [type, fileInfo] of Object.entries(files)) {
+            const blob = await fileInfo.zipEntry.async('blob');
+            const extractedFile = new File([blob], fileInfo.filename, { type: blob.type });
+            
+            switch(type) {
+                case 'chart':
+                    $("#data-file").files = createFileList([extractedFile]);
+                    break;
+                case 'music':
+                    $("#music-file").files = createFileList([extractedFile]);
+                    break;
+                case 'image':
+                    $("#image-file").files = createFileList([extractedFile]);
+                    break;
+                case 'info':
+                    $("#chart-file").files = createFileList([extractedFile]);
+                    break;
+            }
+        }
+
+        // Helper function to create FileList
+        function createFileList(files) {
+            const dt = new DataTransfer();
+            files.forEach(file => dt.items.add(file));
+            return dt.files;
+        }
+
+        setLoadingMessage('Zip file extracted successfully!');
+        setTimeout(() => {
+            loadingOverlay.style.display = "none";
+        }, 1000);
+
+    } catch (error) {
+        console.error('Error extracting zip file:', error);
+        alert('Error extracting zip file: ' + error.message);
+        loadingOverlay.style.display = "none";
+    }
 };
 
 window.onload = () => {
