@@ -4,20 +4,25 @@
         <title>Phigrjs</title>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" href="/style.css">
-        <script src="/tween.js"></script>
-        <script src="/pec2json.js"></script>
-        <script src="/jszip.js"></script>
+        <link rel="stylesheet" href="/css/style.css">
+        <script src="/js/tween.js"></script>
+        <script src="/js/bezier.js"></script>
+        <script src="/js/pec2json.js"></script>
+        <script src="/js/jszip.js"></script>
+        <script src="/js/animation.js"></script>
+        <script>
+            const $ = s => document.querySelector(s);
+        </script>
     </head>
     <body>
         <canvas id="main-canvas"></canvas>
         <div id="progress-container">
             <div>
-                <span>0:00</span>
+                <span class="time">0:00</span>
                 <input type="range" id="progress-bar" min="0" max="100" value="0">
-                <span id="duration">0:00</span>
+                <span id="duration" class="time">0:00</span>
             </div>
-            <div id="seek-time"></div>
+            <div id="seek-time" class="time"></div>
         </div>
         <div id="selector">
             <h3>Phigrjs</h3>
@@ -65,16 +70,36 @@
                             <input type="checkbox" id="hitEffect" checked> Hit Effect
                         </label>
                     </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="autoPlay" checked> AutoPlay
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            <input type="checkbox" id="showAcc" checked> Show Accuracy
+                        </label>
+                    </div>
                 </div>
                 <div class="setting-row">
                     <div class="setting-item">
                         <label>
-                            <input type="checkbox" id="showTiming"> Show Timing
+                            <input type="checkbox" id="showTiming" checked> Show Timing
                         </label>
                     </div>
                     <div class="setting-item">
                         <label>
                             <input type="checkbox" id="showHitPoint"> Show Hit Point
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            Tracing <input id="traceID" type="text">
+                        </label>
+                    </div>
+                    <div class="setting-item">
+                        <label>
+                            Max FPS <input id="maxFps" type="number" value="60">
                         </label>
                     </div>
                 </div>

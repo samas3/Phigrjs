@@ -293,8 +293,7 @@ body {
     flex-grow: 1;
 }
 
-#duration,
-#seek-time {
+.time {
     color: white;
     font-size: 14px;
 }

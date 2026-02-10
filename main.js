@@ -13,104 +13,121 @@ const C = {
     linew: 0.0075,
     lineh: 5.76,
     pcolor: [0xff, 0xec, 0x9f],
+    gcolor: [0xa2, 0xee, 0xff],
+    bcolor: [0x6c, 0x43, 0x43],
+    mcolor: [0xff, 0xff, 0xff],
     palpha: 0xe1 / 0xff,
     click_sounds: {},
     note_imgs: {},
     chart: {},
-    hit_fx_imgs: []
+    hit_fx_perfect: [],
+    hit_fx_good: [],
+    note_bad: null,
+    judgeTime: [0.08, 0.16, 0.18], // p, g, b
+    perfect_max: 0.04,
+    judge_result: {
+        BadEarly: 0,
+        GoodEarly: 1,
+        PerfectEarly: 2,
+        PerfectMax: 3,
+        PerfectLate: 4,
+        GoodLate: 5,
+        BadLate: 6,
+        Miss: 7
+    }
 };
-const $ = s => document.querySelector(s);
 
-class AnimationController {
-    constructor(audioElement) {
-        this.audioElement = audioElement;
-        this.isPaused = false;
-        this.progressBar = $("#progress-bar");
-        this.progressContainer = $("#progress-container");
-        this.durationDisplay = $("#duration");
-        this.seekTimeDisplay = $("#seek-time");
+let pressId = 0;
 
-        this.frameCount = 0;
-        this.currentFps = 0;
-        this.lastFpsUpdate = 0;
-
-        this.progressUpdated = false;
-
-        this.progressBar.addEventListener("input", () => {
-            if (this.audioElement.duration) {
-                const seekTime = this.audioElement.duration * (this.progressBar.value / 100);
-                this.seekTimeDisplay.textContent = `跳转到: ${this.formatTime(seekTime)}`;
-            }
-        });
-
-        this.progressBar.addEventListener("change", () => {
-            if (this.audioElement.duration) {
-                this.audioElement.currentTime = this.audioElement.duration * (this.progressBar.value / 100);
-                this.seekTimeDisplay.textContent = "";
-                this.progressUpdated = true;
-            }
-        });
+class PressEvent {
+    constructor(time, key) {
+        this.id = pressId++;
+        this.time = time;
+        this.key = key;
+        this.type = 'pressed';
     }
+}
 
-    formatTime(seconds) {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, '0')}`;
+class JudgeManager {
+    constructor(numOfNotes) {
+        this.numOfNotes = numOfNotes;
+        this.combo = 0;
+        this.maxCombo = 0;
+        this.judges = [0, 0, 0, 0, 0, 0, 0, 0];
+        this.error = [];
+
+        this.pool = []; // Event池
+        this.time = 0;
+        this.ended = false;
+        this.allNotes = [];
     }
-
-    updateProgress() {
-        if (this.audioElement.duration) {
-            this.progressBar.value = (this.audioElement.currentTime / this.audioElement.duration) * 100;
-            this.durationDisplay.textContent = this.formatTime(this.audioElement.duration);
+    get perfect() {
+        return this.judges[C.judge_result.PerfectEarly] + this.judges[C.judge_result.PerfectMax] + this.judges[C.judge_result.PerfectLate];
+    }
+    get good() {
+        return this.judges[C.judge_result.GoodEarly] + this.judges[C.judge_result.GoodLate];
+    }
+    get bad() {
+        return this.judges[C.judge_result.BadEarly] + this.judges[C.judge_result.BadLate];
+    }
+    get miss() {
+        return this.judges[C.judge_result.Miss];
+    }
+    get acc() {
+        let total = this.judges.reduce((acc, cur) => acc + cur, 0);
+        if (total === 0) return 0;
+        return (this.perfect + this.good * 0.65) / total;
+    }
+    get score() {
+        let score = 0;
+        score += this.maxCombo / this.numOfNotes * 100000;
+        score += (this.perfect + this.good * 0.65) / this.numOfNotes * 900000;
+        return score;
+    }
+    get avgError() {
+        if (this.error.length === 0) return 0;
+        return this.error.reduce((acc, cur) => acc + cur, 0) / this.error.length;
+    }
+    get FCAPStatus() { // 2=AP, 1=FC, 0=Other
+        if (this.miss + this.bad > 0) return 0;
+        if (this.good > 0) return 1;
+        return 2;
+    }
+    reset() {
+        this.combo = 0;
+        this.maxCombo = 0;
+        this.judges = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+        this.error.length = 0;
+        this.pool.length = 0;
+        this.time = 0;
+        this.ended = false;
+    }
+    addError(err) {
+        this.error.push(Math.abs(err));
+    }
+    isPressing() {
+        return this.pool.length > 0;
+    }
+    hasKey(code) {
+        return this.pool.some(e => e.key === code);
+    }
+    findNearestEvent(time) {
+        let events = [];
+        for (let event of this.pool) {
+            if (Math.abs(event.time - time) < C.judgeTime[2] && event.type != 'clicked') events.push(event);
         }
+        if (events.length === 0) return null;
+        events.sort((a, b) => Math.abs(a.time - time) - Math.abs(b.time - time));
+        return events[0];
     }
-    
-    start(updateCallback) {
-        this.updateCallback = updateCallback;
-        this.animationId = requestAnimationFrame(this.animate.bind(this));
-
-        this.frameCount = 0;
-        this.currentFps = 0;
-        this.lastFpsUpdate = performance.now();
-    }
-    
-    animate(currentTime) {
-        this.updateCurrentFps(currentTime);
-        this.updateCallback(this.currentFps);
-        if (!this.isPaused) {
-            this.updateProgress();
-        }
-        this.animationId = requestAnimationFrame(this.animate.bind(this));
-    }
-
-    pause() {
-        this.audioElement.pause();
-        this.progressContainer.style.display = "block";
-        this.updateProgress();
-    }
-    
-    resume() {
-        this.audioElement.play();
-        this.progressContainer.style.display = "none";
-        
-        this.progressUpdated = false;
-    }
-    
-    togglePause() {
-        if (this.isPaused) {
-            this.resume();
+    addJudge(judge) {
+        this.judges[judge]++;
+        let combo = [C.judge_result.GoodEarly, C.judge_result.PerfectEarly, C.judge_result.PerfectMax, C.judge_result.PerfectLate, C.judge_result.GoodLate];
+        if (combo.includes(judge)) {
+            this.combo++;
+            this.maxCombo = Math.max(this.maxCombo, this.combo);
         } else {
-            this.pause();
-        }
-        this.isPaused = !this.isPaused;
-    }
-    
-    updateCurrentFps(currentTime) {
-        this.frameCount++;
-        if (currentTime - this.lastFpsUpdate >= 1000) {
-            this.currentFps = (this.frameCount * 1000) / (currentTime - this.lastFpsUpdate);
-            this.frameCount = 0;
-            this.lastFpsUpdate = currentTime;
+            this.combo = 0;
         }
     }
 }
@@ -132,8 +149,9 @@ const load_audio = async url => {
     return audioBuffer;
 };
 
-const play_sound = async buf => {
+const play_sound = async (buf, loop=false) => {
     const source = actx.createBufferSource();
+    source.loop = loop;
     source.buffer = buf;
     source.connect(actx.destination);
     source.start();
@@ -170,7 +188,7 @@ const load_chart = async url => {
         if (e instanceof SyntaxError) { // not rpe
             try {
                 const res = parse(text);
-                return [JSON.parse(res.data), null];
+                return [JSON.parse(res.data), null, null];
             } catch (ex) {
                 console.error("PEC parse failed:", ex);
                 return [null, null];
@@ -178,8 +196,7 @@ const load_chart = async url => {
         } else if (e.message === "RPE format") { // rpe
             try {
                 const res = parseRPE(text);
-                const info = res.info;
-                return [JSON.parse(res.data), info];
+                return [JSON.parse(res.data), res.info, res.line];
             } catch (ex) {
                 console.error("RPE parse failed:", ex);
                 return [null, null];
@@ -277,7 +294,6 @@ const merge_notes = (above, below) => {
     for (const note of above) {
         note.is_above = true;
     }
-
     for (const note of below) {
         note.is_above = false;
     }
@@ -298,10 +314,10 @@ const get_event_val = (t, es, sn = "start", en = "end") => {
     }
 
     const e = es[i];
-    if (!(e[sn] instanceof Number)) {
+    if (typeof e[sn] !== "number") {
         return e[sn];
     }
-    if (e[sn] instanceof Array) {
+    if (Array.isArray(e[sn])) {
         const result = [];
         for (let idx = 0; idx < e[sn].length; idx++) {
             result.push(easing(t, e.startTime, e.endTime, e[sn][idx], e[en][idx], e.easingType, e.easingLeft, e.easingRight));
@@ -351,9 +367,9 @@ const fill_event = events => {
                 startTime: e.endTime,
                 endTime: events[i + 1].startTime,
                 start: e.end,
-                end: events[i + 1].start,
+                end: e.end,
                 start2: e.end2,
-                end2: events[i + 1].start2
+                end2: e.end2
             });
         }
     });
@@ -377,12 +393,33 @@ const regulate_chart = chart => {
         line.judgeLineDisappearEvents.sort((a, b) => a.startTime - b.startTime);
         if (line.colorEvents) line.colorEvents.sort((a, b) => a.startTime - b.startTime);
         if (line.textEvents) line.textEvents.sort((a, b) => a.startTime - b.startTime);
+        if (line.scaleXEvents) line.scaleXEvents.sort((a, b) => a.startTime - b.startTime);
+        if (line.scaleYEvents) line.scaleYEvents.sort((a, b) => a.startTime - b.startTime);
+
         line.speedEvents = fill_event(line.speedEvents);
         line.judgeLineRotateEvents = fill_event(line.judgeLineRotateEvents);
         line.judgeLineMoveEvents = fill_event(line.judgeLineMoveEvents);
         line.judgeLineDisappearEvents = fill_event(line.judgeLineDisappearEvents);
         line.colorEvents = fill_event(line.colorEvents);
         line.textEvents = fill_event(line.textEvents);
+        line.scaleXEvents = fill_event(line.scaleXEvents);
+        line.scaleYEvents = fill_event(line.scaleYEvents);
+        if (line.scaleXEvents.length === 0) {
+            line.scaleXEvents.push({
+                startTime: 0,
+                endTime: 1e9,
+                start: 1,
+                end: 1
+            });
+        }
+        if (line.scaleYEvents.length === 0) {
+            line.scaleYEvents.push({
+                startTime: 0,
+                endTime: 1e9,
+                start: 1,
+                end: 1
+            });
+        }
     }
     return chart;
 };
@@ -423,20 +460,37 @@ const prettify_time = (t) => {
     return `${m}:${s.toString().padStart(2, "0")}`;
 };
 
+const format_number = (x) => {
+    if (!Number.isFinite(x)) return x;
+    return x.toFixed(2);
+}
+
 let controller;
+let manager;
 
 const render = () => {
     controller.start((fps) => {
         const t = C.chart.music.currentTime - C.chart.data.offset;
+        manager.time = t;
+
         const [w, h] = [cv.width, cv.height];
         const note_width = w * 0.1234375;
-
-        let combo = 0;
-        let score = 0;
 
         ctx.clearRect(0, 0, w, h);
         ctx.drawImage(C.chart.image, 0, 0, w, h);
         ctx.fillRectEx(0, 0, w, h, "rgba(0, 0, 0, 0.6");
+
+        if (C.chart.music.currentTime >= C.chart.music.duration) {
+            if (!manager.ended) {
+                play_sound(C.ending, true);
+            }
+            manager.ended = true;
+        }
+
+        if (manager.ended) {
+            drawEndUI();
+            return;
+        }
 
         ctx.fillRectEx(0, 0, t / C.chart.music.duration * w, 2 * h * C.linew, 'rgba(145, 145, 145, 0.5)');
         ctx.fillRectEx(t / C.chart.music.duration * w, 0, 0.5 * h * C.linew, 2 * h * C.linew, "rgba(255, 255, 255, 0.6)");
@@ -444,72 +498,87 @@ const render = () => {
         ctx.fillTextEx(C.chart.info.Name, 0.02 * w, 0.97 * h, `${0.03 * h}px Saira`, 'white', 'bottom left');
         ctx.fillTextEx(C.chart.info.Level, 0.98 * w, 0.97 * h, `${0.03 * h}px Saira`, 'white', 'bottom right');
         if (C.settings.showFps) {
-            ctx.fillTextEx(fps.toFixed(2), 0.98 * w, 0.5 * h, `${0.02 * h}px Saira`, 'white', 'middle right');
+            ctx.fillTextEx(fps.toFixed(2), 0.99 * w, 0.5 * h, `${0.025 * h}px Saira`, '#ffffff', 'middle right');
         }
 
         let statusText = prettify_time(C.chart.music.currentTime) + '/' + prettify_time(C.chart.music.duration);
         if (controller.isPaused) {
-            statusText += ' Paused'
+            statusText += ' Paused';
+            controller.seekTimeDisplay.textContent = controller.formatTime(t);
         }
         if (C.settings.showTiming) {
             ctx.fillTextEx(statusText, 0.01 * w, 0.02 * h, `${0.02 * h}px Saira`, 'white', 'top left');
         }
 
         for (const line of C.chart.data.judgeLineList) {
-            let [ texture, shown, lineRotate, lineX, lineY, lineAlpha, color ] = line.get_state(t);
+            let [ texture, shown, lineRotate, lineX, lineY, lineAlpha, color, scaleX, scaleY ] = line.get_state(t);
             lineX *= w; lineY *= h;
             const lineDrawPos = [
-                ...rotate_point(lineX, lineY, h * C.lineh, lineRotate),
-                ...rotate_point(lineX, lineY, h * C.lineh, lineRotate + 180),
+                ...rotate_point(lineX, lineY, h * C.lineh * scaleX / 2, lineRotate),
+                ...rotate_point(lineX, lineY, h * C.lineh * scaleX / 2, lineRotate + 180),
             ];
+            
+            if (!C.chart.textures[line.id]) {
+                let lineColor = color;
+                if (shown) {
+                    lineColor = lineColor || ([C.mcolor, C.gcolor, C.pcolor][manager.FCAPStatus]);
+                    ctx.drawLine(...lineDrawPos, h * C.linew * scaleY, `rgba(${lineColor.join(", ")}, ${lineAlpha})`);
+                } else {
+                    lineColor = lineColor || C.mcolor;
+                    ctx.drawCenterScaledText(texture, lineX, lineY, scaleX, scaleY, `${0.05 * h}px Saira`, `rgba(${lineColor.join(", ")}, ${lineAlpha})`);
+                }
 
-            if (shown) {
-                ctx.drawLine(...lineDrawPos, h * C.linew, `rgba(${(color || C.pcolor).join(", ")}, ${lineAlpha})`);
+                if (C.settings.showHitPoint) {
+                    ctx.fillTextEx('' + line.id, lineX, lineY, `${0.03 * h}px Saira`, 'red', 'middle center');
+                }
             } else {
-                ctx.fillTextEx(texture, lineX, lineY, `${0.05 * h}px Saira`, `rgba(${(color || [255, 255, 255]).join(", ")}, ${lineAlpha})`, 'middle center');
-            }
-
-            if (C.settings.showHitPoint) {
-                ctx.fillTextEx('' + line.id, lineX, lineY, `${0.03 * h}px Saira`, 'red', 'middle center');
+                // todo: images
             }
 
             const beatt = line.sec2beat(t);
             const linefp = get_fp(beatt, line.speedEvents);
 
             for (const note of line.notes) {
-                if (controller.progressUpdated) note.scored = false;
-                if (!note.isFake && note.scored) combo++;
-
-                if (!note.isFake && note.sect < t && !note.clicked) {
-                    play_sound(C.click_sounds[note.type]);
-                    note.clicked = true;
+                if (C.settings.traceID && note.id === C.settings.traceID) {
+                    ctx.fillTextEx(`Note ${note.id}${('tdhf')[note.type - 1]} Time=${format_number(line.sec2beat(note.sect))}s isAbove=${note.is_above} isFake=${note.isFake} Speed=${format_number(note.speed)} Alpha=${note.alpha}`, 0, 0, `${0.03 * h}px Saira`, 'white', 'top left');
                 }
 
-                if (!note.isFake && (!note.is_hold && note.sect < t) || (note.is_hold && note.hold_end_time < t)) {
-                    note.scored = true;
-                    continue;
+
+                if (C.settings.autoPlay) {
+                    if (controller.isPaused) {
+                        note.judged = false;
+                        if (controller.progressUpdating) note.clicked = false;
+                    }
+                    
+                    if (!note.isFake && !note.judged && !controller.isPaused) {
+                        if (note.sect < t && !note.clicked && !controller.isPaused) {
+                            if (note.type === C.note.hold) {
+                                play_sound(C.click_sounds[note.type]);
+                            }
+                            note.clicked = true;
+                            manager.addError(note.sect - t);
+                        }
+                        if (note.hold_end_time < t) {
+                            note.judged = true;
+                            manager.addJudge(C.judge_result.PerfectMax);
+                            continue;
+                        }
+                    }
                 }
                 // judging end
 
-                if (note.visibleTime && (note.sect - t > note.visibleTime)) {
-                    continue;
-                }
-
                 let note_fp = (note.floorPosition - linefp) * C.units.pgrh * (C.units.pgrbeat / line.bpm) * h;
-
                 if (!note.is_hold) {
                     note_fp *= note.speed;
                 }
+                if (
+                    (note.visibleTime && (note.sect - t > note.visibleTime)) ||
+                    (lineAlpha < 0) ||
+                    (!note.is_hold && note_fp < -1e6 || note_fp > h * 2) ||
+                    (note.type !== C.note.hold && note.judged)
+                ) continue;
 
-                if (!note.is_hold && note_fp < -1e6) {
-                    continue;
-                }
-
-                if (note_fp > h * 2) {
-                    continue;
-                }
-
-                const draw_head = note.sect > t;
+                const draw_head = note.sect > t; //C.settings.autoPlay ? (note.sect > t) : !note.isFake || (note.sect > t);
                 const note_head_img = C.note_head_imgs[note.type][note.morebets];
                 const this_note_width = note_width * (note.morebets ? (
                     C.note_head_imgs[note.type][1].width
@@ -522,6 +591,7 @@ const render = () => {
                 const note_head_pos = rotate_point(...note_atline_pos, note_fp, l2n_rotate);
 
                 const note_draw_rotate = lineRotate + (note.is_above ? 0 : 180);
+                note.draw_pos = [...note_head_pos, note_draw_rotate];
 
                 if (draw_head) {
                     ctx.drawCenterRotateImage(
@@ -543,78 +613,270 @@ const render = () => {
                     const note_body_height = Math.max(
                         note.hold_length * h
                         + Math.min(0, note_fp)
-                        + (note.clicked ? this_note_head_height / 2 : 0)
+                        + this_note_head_height / 2
                         - note_tail_height / 2
                         , 0
                     );
+                    if (note_body_height > 0) {
+                        const note_body_pos = rotate_point(
+                            ...(note.sect < t ? note_atline_pos : note_head_pos),
+                            (note.sect < t ? 0 : this_note_head_height / 2) + note_body_height / 2,
+                            l2n_rotate);
 
-                    const note_body_pos = rotate_point(
-                        ...((!note.clicked) ? note_head_pos : note_atline_pos),
-                        ((!note.clicked) ? this_note_head_height / 2 : 0) + note_body_height / 2,
-                        l2n_rotate);
+                        ctx.drawCenterRotateImage(
+                            note_body_img, ...note_body_pos,
+                            this_note_width * (note.size || 1), note_body_height,
+                            note_draw_rotate, (note.holdBroken ? C.palpha : 1)
+                        );
+                        
+                        note.draw_pos = [...note_atline_pos, note_draw_rotate];
 
-                    ctx.drawCenterRotateImage(
-                        note_body_img, ...note_body_pos,
-                        this_note_width, note_body_height,
-                        note_draw_rotate
-                    );
+                        const note_tail_pos = rotate_point(
+                            ...note_body_pos,
+                            note_body_height / 2 + note_tail_height / 2,
+                            l2n_rotate
+                        );
 
-                    const note_tail_pos = rotate_point(
-                        ...note_body_pos,
-                        note_body_height / 2 + note_tail_height / 2,
-                        l2n_rotate
-                    );
-
-                    ctx.drawCenterRotateImage(
-                        note_tail_img, ...note_tail_pos,
-                        this_note_width, note_tail_height,
-                        note_draw_rotate
-                    );
+                        ctx.drawCenterRotateImage(
+                            note_tail_img, ...note_tail_pos,
+                            this_note_width * (note.size || 1), note_tail_height,
+                            note_draw_rotate
+                        );
+                    }
                 }
+            }
+            if (C.settings.traceID && line.id === C.settings.traceID) {
+                let state = line.get_state(t);
+                let beatt = line.sec2beat(t);
+                let fp = get_fp(beatt, line.speedEvents);
+                ctx.fillTextEx(`Line ${line.id} Time=${format_number(beatt)} FP=${format_number(fp)} BPM=${line.bpm} Pos=(${format_number(state[3])}, ${format_number(state[4])}) Rot=${format_number(state[2])} Alpha=${format_number(state[5])} Scale=${format_number(state[7])}x${format_number(state[8])}`, 0, 0, `${0.03 * h}px Saira`, 'white', 'top left');
             }
         }
 
-        if(C.settings.hitEffect) {
-            const effect_dur = 0.5;
+        if (!C.settings.autoPlay) processJudge(t);
 
-            for (const [note, effect_t] of C.chart.data.click_effect_collection) {
-                if (effect_t > t) break;
-                if (effect_t + effect_dur < t) continue;
+        if (C.settings.hitEffect) {
+            let effect_dur;
+            for (let [note, effect_t] of C.chart.data.click_effect_collection) {
+                if (note.clicked && !note.isFake) {
+                    effect_dur = note.type === C.note.hold ? 30 / note.master.bpm : 0.5;
+                    if (!note.played_sound) {
+                        play_sound(C.click_sounds[note.type]);
+                        note.played_sound = true;
+                    }
+                    if (effect_t > t) break;
+                    if (!C.settings.autoPlay) effect_t = note.judgeTime;
+                    if (note.type !== C.note.hold) {
+                        if (effect_t + effect_dur < t) continue;
+                    } else {
+                        if (!C.settings.autoPlay && !note.pressing || note.judged) continue;
+                    }
 
-                const p = (t - effect_t) / effect_dur;
-                const imi = Math.max(0, Math.min(C.hit_fx_imgs.length - 1, Math.floor(p * C.hit_fx_imgs.length)));
-                const im = C.hit_fx_imgs[imi];
-                const effect_size = note_width * 1.375 * 1.12;
-                const [ pars, pos_getter ] = note.get_click_effect(w, h);
-                const [ x, y ] = pos_getter(effect_t);
+                    const [ pars, pos_getter ] = note.get_click_effect(w, h);
+                    let [ x, y ] = pos_getter(effect_t);
+                    let state = note.master.get_state(t);
+                    let rotate = state[2] + (note.is_above ? 0 : 180);
+                    if (note.draw_pos) [ badX, badY, r ] = note.draw_pos;
 
-                ctx.save();
-                ctx.globalAlpha *= C.palpha;
-                ctx.drawImage(
-                    im,
-                    x - effect_size / 2, y - effect_size / 2,
-                    effect_size, effect_size
-                );
-                ctx.restore();
+                    if (note.hitColor === C.bcolor) {
+                        ctx.save();
+                        ctx.drawCenterRotateImage(
+                            C.note_bad, badX, badY,
+                            note_width, note_width / C.note_bad.width * C.note_bad.height,
+                            rotate, C.palpha
+                        );
+                        ctx.restore();
+                        continue;
+                    }
 
-                for (const paritem of pars) {
-                    const [ rotate, size, r ] = paritem(p);
+                    const hit_fx = (note.hitColor === C.gcolor ? C.hit_fx_good : C.hit_fx_perfect);
+
+                    const p = (t - effect_t) / effect_dur;
+                    // const imi = Math.max(0, Math.min(hit_fx.length - 1, Math.floor(p * hit_fx.length)));
+                    const imi = Math.floor(p * hit_fx.length) % hit_fx.length;
+                    const im = hit_fx[imi];
+
+                    const effect_size = note_width * 1.375 * 1.12;
+
                     ctx.save();
-                    ctx.translate(x, y);
-                    const parcenter = rotate_point(0, 0, r, rotate);
-                    ctx.fillRectEx(parcenter[0], parcenter[1], size, size, `rgba(${C.pcolor.join(", ")}, ${1.0 - p})`);
+                    ctx.globalAlpha *= C.palpha;
+                    ctx.drawImage(
+                        im,
+                        x - effect_size / 2, y - effect_size / 2,
+                        effect_size, effect_size
+                    );
                     ctx.restore();
+
+                    for (const paritem of pars) {
+                        const [ rotate, size, r ] = paritem(p);
+                        ctx.save();
+                        ctx.translate(x, y);
+                        const parcenter = rotate_point(0, 0, r, rotate);
+                        ctx.fillRectEx(parcenter[0], parcenter[1], size, size, `rgba(${note.hitColor.join(", ")}, ${1.0 - p})`);
+                        ctx.restore();
+                    }
                 }
             }
         }
 
-        if (combo >= 3) {
-            ctx.fillTextEx(`${combo}`, 0.5 * w, 0.02 * h, `${0.06 * h}px Saira`, 'white', 'top center');
-            ctx.fillTextEx('COMBO', 0.5 * w, 0.08 * h, `${0.02 * h}px Saira`, 'white', 'top center');
+        if (manager.combo >= 3) {
+            ctx.fillTextEx(`${manager.combo}`, 0.5 * w, 0.02 * h, `${0.06 * h}px Saira`, 'white', 'top center');
+            ctx.fillTextEx(C.settings.autoPlay ? 'AUTOPLAY' : 'COMBO', 0.5 * w, 0.08 * h, `${0.02 * h}px Saira`, 'white', 'top center');
         }
-        score = Math.floor(combo * 1000000 / C.chart.data.numOfNotes) + '';
-        ctx.fillTextEx(score.padStart(7, '0'), 0.98 * w, 0.02 * h, `${0.04 * h}px Saira`, 'white', 'top right');
+        manager.maxCombo = Math.max(manager.maxCombo, manager.combo);
+        let score = Math.round(manager.score) + '';
+        ctx.fillTextEx(score.padStart(7, '0'), 0.99 * w, 0.02 * h, `${0.04 * h}px Saira`, 'white', 'top right');
+        if (C.settings.showAcc) {
+            let acc;
+            if (C.settings.autoPlay) acc = '100%';
+            else acc = (manager.acc * 100).toFixed(2) + '%';
+            ctx.fillTextEx(acc.padStart(5), 0.99 * w, 0.06 * h, `${0.02 * h}px Saira`, 'white', 'top right');
+        }
     });
+};
+
+function removeIf(arr, predicate) {
+    if (!Array.isArray(arr) || typeof predicate !== 'function') {
+        return 0;
+    }
+    let writeIndex = 0;
+    let removedCount = 0;
+
+    for (let readIndex = 0; readIndex < arr.length; readIndex++) {
+        const shouldRemove = predicate(arr[readIndex], readIndex, arr);
+        
+        if (!shouldRemove) {
+            if (writeIndex !== readIndex) {
+                arr[writeIndex] = arr[readIndex];
+            }
+            writeIndex++;
+        } else {
+            removedCount++;
+        }
+    }
+    arr.length = writeIndex;
+    return removedCount;
+}
+
+function restart() {
+    C.chart.music.currentTime = 0;
+    manager.reset();
+    for (const line of C.chart.data.judgeLineList) {
+        for (const note of line.notes) {
+            note.clicked = false;
+            note.judged = false;
+            note.played_sound = false;
+        }
+    }
+}
+
+const processJudge = (t) => {
+    if (controller.isPaused) {
+        manager.pool.length = 0;
+        return;
+    }
+    for (const note of manager.allNotes) {
+        if (note.sect > t + C.judgeTime[2]) break;
+        if (note.judged) continue;
+        if ((note.type !== C.note.hold && note.hold_end_time < t - C.judgeTime[2]) || 
+        (note.type === C.note.hold && note.hold_end_time < t - C.judgeTime[1] && !note.pressing)) {
+            note.judged = true;
+            manager.addJudge(C.judge_result.Miss);
+        }
+        let judged = false;
+        let event, deltaTime;
+        switch (note.type) {
+            case C.note.tap:
+                event = manager.findNearestEvent(note.sect);
+                if (event === null) {
+                    break;
+                }
+                event.type = 'clicked';
+                note.judgeTime = event.time;
+                deltaTime = note.sect - event.time; // >0: Early, <0: Late
+                manager.addError(deltaTime);
+                note.judged = true;
+                note.clicked = true;
+                if (-C.perfect_max <= deltaTime && deltaTime <= C.perfect_max) {
+                    manager.addJudge(C.judge_result.PerfectMax);
+                } else if (-C.judgeTime[2] <= deltaTime && deltaTime < -C.judgeTime[1]) {
+                    manager.addJudge(C.judge_result.BadLate);
+                    note.hitColor = C.bcolor;
+                } else if (-C.judgeTime[1] <= deltaTime && deltaTime < -C.judgeTime[0]) {
+                    manager.addJudge(C.judge_result.GoodLate);
+                    note.hitColor = C.gcolor;
+                } else if (-C.judgeTime[0] <= deltaTime && deltaTime < -C.perfect_max) {
+                    manager.addJudge(C.judge_result.PerfectLate);
+                } else if (deltaTime <= C.judgeTime[0]) {
+                    manager.addJudge(C.judge_result.PerfectEarly);
+                } else if (deltaTime <= C.judgeTime[1]) {
+                    manager.addJudge(C.judge_result.GoodEarly);
+                    note.hitColor = C.gcolor;
+                } else if (deltaTime <= C.judgeTime[2]) {
+                    manager.addJudge(C.judge_result.BadEarly);
+                    note.hitColor = C.bcolor;
+                }
+                judged = true;
+                break;
+            case C.note.drag:
+            case C.note.flick:
+                if (manager.isPressing() && Math.abs(t - note.sect) < C.judgeTime[0]) {
+                    note.judged = true;
+                    note.clicked = true;
+                    manager.addJudge(C.judge_result.PerfectMax);
+                    note.hitColor = C.pcolor;
+                }
+                note.judgeTime = note.sect;
+                judged = true;
+                break;
+            case C.note.hold:
+                if (note.pressing && !note.judged) {
+                    if (t - note.last_press_time > 0.1) {
+                        note.pressing = false;
+                        note.judged = true;
+                        note.holdBroken = true;
+                        manager.addJudge(C.judge_result.Miss);
+                    }
+                    if (t > note.hold_end_time) {
+                        note.pressing = false;
+                        note.judged = true;
+                        let deltaTime = note.deltaTime;
+                        if (-C.perfect_max <= deltaTime && deltaTime <= C.perfect_max) {
+                            manager.addJudge(C.judge_result.PerfectMax);
+                        } else if (-C.judgeTime[1] <= deltaTime && deltaTime < -C.judgeTime[0]) {
+                            manager.addJudge(C.judge_result.GoodLate);
+                        } else if (-C.judgeTime[0] <= deltaTime && deltaTime < -C.perfect_max) {
+                            manager.addJudge(C.judge_result.PerfectLate);
+                        } else if (deltaTime <= C.judgeTime[0]) {
+                            manager.addJudge(C.judge_result.PerfectEarly);
+                        } else if (deltaTime <= C.judgeTime[1]) {
+                            manager.addJudge(C.judge_result.GoodEarly);
+                        }
+                    }
+                    if (manager.isPressing()) note.last_press_time = t;
+                    break;
+                }
+                event = manager.findNearestEvent(note.sect);
+                if (event === null) {
+                    break;
+                }
+                event.type = 'clicked';
+                note.judgeTime = event.time;
+                deltaTime = note.sect - event.time; // >0: Early, <0: Late
+                note.clicked = true;
+                note.deltaTime = deltaTime;
+                manager.addError(deltaTime);
+                if (-C.judgeTime[1] <= deltaTime && deltaTime < -C.judgeTime[0]) {
+                    note.hitColor = C.gcolor;
+                } else if (C.judgeTime[0] <= deltaTime && deltaTime <= C.judgeTime[1]) {
+                    note.hitColor = C.gcolor;
+                }
+                note.pressing = true;
+                note.last_press_time = event.time;
+                break;
+        }
+        if (judged) break;
+    }
 };
 
 CanvasRenderingContext2D.prototype.drawLine = function (x0, y0, x1, y1, w, c) {
@@ -648,6 +910,18 @@ CanvasRenderingContext2D.prototype.fillTextEx = function (t, x, y, f, color = 'w
     this.restore();
 };
 
+CanvasRenderingContext2D.prototype.drawCenterScaledText = function (text, x, y, scaleX, scaleY, f, color = 'white') {
+    this.save();
+    this.font = f;
+    this.fillStyle = color;
+    this.translate(x, y);
+    this.scale(scaleX, scaleY);
+    this.textBaseline = 'middle';
+    this.textAlign = 'center';
+    this.fillText(text, 0, 0);
+    this.restore();
+};
+
 CanvasRenderingContext2D.prototype.drawCenterRotateImage = function (img, x, y, w, h, deg, alpha = 1) {
     this.save();
     this.translate(x, y);
@@ -664,6 +938,126 @@ CanvasRenderingContext2D.prototype.drawBCRotateImage = function (img, x, y, w, h
     this.drawImage(img, -w / 2, -h, w, h);
     this.restore();
 };
+
+const drawEndUI = () => {
+    const [w, h] = [cv.width, cv.height];
+    const ctx = cv.getContext("2d");
+    
+    const songName = C.chart.info.Name || "Unknown Song";
+    const score = Math.round(manager.score);
+    const acc = (manager.acc * 100).toFixed(2);
+    const perfect = manager.perfect;
+    const good = manager.good;
+    const bad = manager.bad;
+    const miss = manager.miss;
+    const fcapStatus = manager.FCAPStatus;
+    
+    const earlyPerfect = manager.judges[C.judge_result.PerfectEarly];
+    const latePerfect = manager.judges[C.judge_result.PerfectLate];
+    const earlyGood = manager.judges[C.judge_result.GoodEarly];
+    const lateGood = manager.judges[C.judge_result.GoodLate];
+    const earlyBad = manager.judges[C.judge_result.BadEarly];
+    const lateBad = manager.judges[C.judge_result.BadLate];
+
+    const avgErr = Math.round(manager.avgError * 1000);
+    
+    let rating = "";
+    let ratingColor = "white";
+    
+    if (fcapStatus === 2) {
+        rating = "φ";
+        ratingColor = "gold";
+    } else if (fcapStatus === 1) {
+        rating = "V";
+        ratingColor = "#a2eeff";
+    } else {
+        if (score >= 960000) {
+            rating = "V";
+        } else if (score >= 920000) {
+            rating = "S";
+        } else if (score >= 880000) {
+            rating = "A";
+        } else if (score >= 820000) {
+            rating = "B";
+        } else if (score >= 700000) {
+            rating = "C";
+        } else {
+            rating = "F";
+        }
+    }
+    
+    const leftWidth = 0.6 * w;
+    
+    const difficulty = C.chart.info.Level || "SP Lv.?";
+    
+    if (C.chart.image) {
+        const fixedImgWidth = h;
+        const fixedImgHeight = fixedImgWidth * 9 / 16;
+        
+        const imgX = (leftWidth - fixedImgWidth) / 2;
+        const imgY = 0.1 * h;
+        
+        ctx.save();
+        ctx.globalAlpha = 0.7;
+        ctx.drawImage(C.chart.raw_image, imgX, imgY, fixedImgWidth, fixedImgHeight);
+        ctx.restore();
+    }
+    
+    const maxSongNameWidth = leftWidth * 0.85;
+    let songNameFontSize = 0.045 * h;
+    
+    ctx.save();
+    ctx.font = `${songNameFontSize}px Saira`;
+    const textMetrics = ctx.measureText(songName);
+    if (textMetrics.width > maxSongNameWidth) {
+        songNameFontSize = (maxSongNameWidth / textMetrics.width) * songNameFontSize * 0.9;
+    }
+    ctx.restore();
+    
+    ctx.fillTextEx(songName, leftWidth * 0.5, h * 0.7, `${songNameFontSize}px Saira`, "white", "top center");
+    
+    ctx.fillTextEx(`${difficulty}`, leftWidth * 0.5, h * 0.75, `${0.03 * h}px Saira`, "#a2eeff", "top center");
+    
+    const rightStartX = leftWidth + 0.05 * h;
+    const rightEndX = w - 0.05 * h;
+    
+    ctx.fillTextEx(rating, rightEndX, 0.15 * h, `${0.12 * h}px Saira`, ratingColor, "top right");
+    
+    ctx.fillTextEx(score.toString().padStart(7, '0'), rightEndX, 0.3 * h, `${0.05 * h}px Saira`, "white", "top right");
+    
+    ctx.fillTextEx(`${acc}%`, rightEndX, 0.38 * h, `${0.04 * h}px Saira`, "#a2eeff", "top right");
+    
+    ctx.fillTextEx("MAX COMBO", rightEndX, 0.45 * h, `${0.025 * h}px Saira`, "#aaaaaa", "top right");
+    ctx.fillTextEx(manager.maxCombo.toString(), rightEndX - 0.08 * h * 2.5, 0.45 * h, `${0.025 * h}px Saira`, "white", "top right");
+
+    ctx.fillTextEx(C.settings.autoPlay ? "AUTOPLAY" : "", rightStartX, 0.45 * h, `${0.025 * h}px Saira`, "gold", "top left")
+    ctx.fillTextEx(`ERROR ±${avgErr}ms`, rightStartX, 0.48 * h, `${0.025 * h}px Saira`, "white", "top left")
+    
+    const statsYStart = 0.52 * h;
+    const statsSpacing = 0.05 * h;
+    
+    ctx.fillTextEx("PERFECT", rightEndX, statsYStart, `${0.03 * h}px Saira`, "#ffec9f", "top right");
+    ctx.fillTextEx(`${perfect}(${perfect - earlyPerfect - latePerfect})`, rightEndX - 0.08 * h * 2.5, statsYStart, `${0.03 * h}px Saira`, "white", "top right");
+    
+    ctx.fillTextEx("GOOD", rightEndX, statsYStart + statsSpacing, `${0.03 * h}px Saira`, "#a2eeff", "top right");
+    ctx.fillTextEx(good.toString(), rightEndX - 0.08 * h * 2.5, statsYStart + statsSpacing, `${0.03 * h}px Saira`, "white", "top right");
+    
+    ctx.fillTextEx("BAD", rightEndX, statsYStart + 2 * statsSpacing, `${0.03 * h}px Saira`, "#ff6b6b", "top right");
+    ctx.fillTextEx(bad.toString(), rightEndX - 0.08 * h * 2.5, statsYStart + 2 * statsSpacing, `${0.03 * h}px Saira`, "white", "top right");
+    
+    ctx.fillTextEx("MISS", rightEndX, statsYStart + 3 * statsSpacing, `${0.03 * h}px Saira`, "#ff4757", "top right");
+    ctx.fillTextEx(miss.toString(), rightEndX - 0.08 * h * 2.5, statsYStart + 3 * statsSpacing, `${0.03 * h}px Saira`, "white", "top right");
+    
+    const earlyLateYStart = statsYStart + 4.5 * statsSpacing;
+    
+    ctx.fillTextEx("EARLY/LATE", rightEndX, earlyLateYStart, `${0.025 * h}px Saira`, "#95a5a6", "top right");
+    ctx.fillTextEx(`P: ${earlyPerfect}/${latePerfect}`, rightEndX, earlyLateYStart + 0.03 * h, `${0.02 * h}px Saira`, "#bdc3c7", "top right");
+    ctx.fillTextEx(`G: ${earlyGood}/${lateGood}`, rightEndX - 0.15 * h * 2.5, earlyLateYStart + 0.03 * h, `${0.02 * h}px Saira`, "#bdc3c7", "top right");
+    ctx.fillTextEx(`B: ${earlyBad}/${lateBad}`, rightEndX - 0.3 * h * 2.5, earlyLateYStart + 0.03 * h, `${0.02 * h}px Saira`, "#bdc3c7", "top right");
+    
+    ctx.drawLine(rightEndX - 0.3 * h * 2.5, earlyLateYStart + 0.06 * h, rightEndX, earlyLateYStart + 0.06 * h, 2, "rgba(255, 255, 255, 0.2)");
+}
+
 async function init() {
     setLoadingMessage('Loading resources...');
     cv.width = document.body.clientWidth;
@@ -673,6 +1067,7 @@ async function init() {
     C.click_sounds[C.note.hold] = C.click_sounds[C.note.tap];
     C.click_sounds[C.note.drag] = await load_audio("/res/drag.ogg");
     C.click_sounds[C.note.flick] = await load_audio("/res/flick.ogg");
+    C.ending = await load_audio('/res/ending.mp3');
 
     C.note_imgs.click = await load_img("/res/click.png");
     C.note_imgs.drag = await load_img("/res/drag.png");
@@ -704,7 +1099,7 @@ async function init() {
 
     for (let j = 0; j < C.respack_info.hitFx[1]; j++) {
         for (let i = 0; i < C.respack_info.hitFx[0]; i++) {
-            C.hit_fx_imgs.push(
+            C.hit_fx_perfect.push(
                 cv_put_color(clip_block_img(
                     C.hit_fx,
                     (i / C.respack_info.hitFx[0]) * C.hit_fx.width,
@@ -713,8 +1108,18 @@ async function init() {
                     ((j + 1) / C.respack_info.hitFx[1]) * C.hit_fx.height
                 ), C.pcolor)
             );
+            C.hit_fx_good.push(
+                cv_put_color(clip_block_img(
+                    C.hit_fx,
+                    (i / C.respack_info.hitFx[0]) * C.hit_fx.width,
+                    (j / C.respack_info.hitFx[1]) * C.hit_fx.height,
+                    ((i + 1) / C.respack_info.hitFx[0]) * C.hit_fx.width,
+                    ((j + 1) / C.respack_info.hitFx[1]) * C.hit_fx.height
+                ), C.gcolor)
+            );
         }
     }
+    C.note_bad = cv_put_color(clip_img(C.note_imgs.click, 0, C.note_imgs.click.height), C.bcolor);
     
     window.onresize = () => {
         cv.width = window.innerWidth;
@@ -726,23 +1131,33 @@ async function load(chart, data, music, image, settings) {
 
     setLoadingMessage('Loading chart...');
     C.chart.info = await load_csv(chart);
-    const [ chart_data, chart_info ] = await load_chart(data);
+    const [ chart_data, chart_info, line_info ] = await load_chart(data);
     C.chart.data = chart_data;
+    C.chart.textures = {};
     if (chart_info) {
         C.chart.info = chart_info;
+    }
+    if (line_info) {
+        line_info.forEach((x) => {
+            if (x.Image !== "line.png") C.chart.textures[x.LineId] = x.Image;
+            else C.chart.textures[x.LineId] = x.attachUI;
+        });
     }
     C.chart.data = regulate_chart(C.chart.data);
     setLoadingMessage('Loading music...');
     C.chart.music = await load_audioele(music);
     setLoadingMessage('Loading image...');
-    C.chart.image = get_blur_img(await load_img(image), 0.05);
-    controller = new AnimationController(C.chart.music);
+    C.chart.raw_image = await load_img(image);
+    C.chart.image = get_blur_img(C.chart.raw_image, 0.05);
 
     C.chart.music.style.display = "none";
     document.body.appendChild(C.chart.music);
 
     const note_sect_counter = new Map();
     C.chart.data.numOfNotes = 0;
+    C.settings = settings;
+    controller = new AnimationController(C.chart.music, C.settings.maxFps);
+    manager = new JudgeManager(0);
 
     setLoadingMessage('Parsing chart data...');
     C.chart.data.judgeLineList.forEach((line, i) => {
@@ -757,14 +1172,16 @@ async function load(chart, data, music, image, settings) {
             let texture = "";
             const text = get_event_val(beatt, line.textEvents);
             if (text !== null) texture = text;
-            const color = get_event_val(beatt, line.colorEvents) || C.pcolor;
+            const color = get_event_val(beatt, line.colorEvents);
             let shown = true;
             if (line.textEvents && line.textEvents.length > 0) {
                 shown = false;
             }
-            return [ texture, shown, rotate, x, y, alpha, color ];
+            const scaleX = get_event_val(beatt, line.scaleXEvents);
+            const scaleY = get_event_val(beatt, line.scaleYEvents);
+            return [ texture, shown, rotate, x, y, alpha, color, scaleX, scaleY ];
         };
-        line.id = i;
+        line.id = i + "";
 
         init_speed_events(line.speedEvents);
         line.notes = merge_notes(line.notesAbove, line.notesBelow);
@@ -776,11 +1193,13 @@ async function load(chart, data, music, image, settings) {
             note.hold_length = note.secht * note.speed * C.units.pgrh;
             note.is_hold = note.type === C.note.hold;
             note.clicked = false;
-            note.scored = false;
+            note.judged = false;
             note.id = `${line.id}_${i}`;
             note.master = line;
 
-            C.chart.data.numOfNotes++;
+            note.headJudged = false;
+            note.hitColor = C.pcolor;
+            if (!note.isFake) manager.allNotes.push(note);
 
             if (settings.hlEffect) {
                 if (!note_sect_counter.has(note.sect)) {
@@ -789,6 +1208,7 @@ async function load(chart, data, music, image, settings) {
                 note_sect_counter.set(note.sect, note_sect_counter.get(note.sect) + 1);
             }
         });
+        manager.allNotes.sort((a, b) => a.sect - b.sect);
 
         delete line.notesAbove;
         delete line.notesBelow;
@@ -815,7 +1235,7 @@ async function load(chart, data, music, image, settings) {
                     };
                 });
                 this.get_click_effect = () => [ pars, t => {
-                    let [ texture, shown, lineRotate, lineX, lineY, alpha, color ] = line.get_state(t);
+                    let [ texture, shown, lineRotate, lineX, lineY, alpha, color, scaleX, scaleY ] = line.get_state(t);
                     const pos = rotate_point(
                         lineX * w, lineY * h,
                         this.positionX * C.units.pgrw * w,
@@ -826,34 +1246,36 @@ async function load(chart, data, music, image, settings) {
                 return this.get_click_effect();
             };
 
-            if (!note.isFake) C.chart.data.click_effect_collection.push([ note, note.sect ]);
+            if (!note.isFake) {
+                C.chart.data.click_effect_collection.push([ note, note.sect ]);
+                C.chart.data.numOfNotes++;
+            }
 
-            if (note.is_hold) {
+            /*if (note.is_hold) {
                 const dt = 30 / line.bpm;
                 let st = note.sect + dt;
                 while (st < note.hold_end_time) {
                     C.chart.data.click_effect_collection.push([ note, st ]);
                     st += dt;
                 }
-            }
+            }*/
         }
     }
 
     C.chart.data.click_effect_collection.sort((a, b) => a[1] - b[1]);
-
-    console.log(C.chart.data);
     
     setLoadingMessage('Finishing...');
-    C.settings = settings;
-
+    console.log(C.chart.data);
+    console.log(C.settings);
+    manager.numOfNotes = C.chart.data.numOfNotes;
 
     function start() {    
         loadingOverlay.style.display = "none";
         setLoadingMessage("");
 
-        cv.requestFullscreen();
+        // cv.requestFullscreen();
         C.chart.music.play();
-        const font = new FontFace('Saira', 'url(/data/font.ttf)')
+        const font = new FontFace('Saira', 'url(/css/font.ttf)')
         font.load().then(f => {
             document.fonts.add(f);
         }).then(() => {
@@ -863,9 +1285,29 @@ async function load(chart, data, music, image, settings) {
     start();
 
     document.addEventListener('keydown', (e) => {
+        if (manager.ended) {
+            return;
+        }
         if (e.code === 'Space') {
             controller.togglePause();
+            e.preventDefault();
+            return;
         }
+        if (e.code === "Backspace") {
+            restart();
+            e.preventDefault();
+            return;
+        }
+        if (e.code === 'Escape' || e.code[0] === 'F') {
+            return;
+        }
+        if (!manager.hasKey(e.code)) manager.pool.push(new PressEvent(manager.time, e.code));
+    });
+    document.addEventListener('keyup', (e) => {
+        if (manager.ended) {
+            return;
+        }
+        removeIf(manager.pool, p => p.key === e.code);
     });
 };
 
@@ -912,7 +1354,7 @@ $("#load-button").onclick = () => {
     }
     let infoUrl;
     if (!infoFile) {
-        infoUrl = "/data/info.csv";
+        infoUrl = "/res/info.csv";
     } else {
         infoUrl = URL.createObjectURL(infoFile);
     }
@@ -924,16 +1366,10 @@ $("#load-button").onclick = () => {
     loadingOverlay.style.display = "flex";
     load(infoUrl, chartUrl, musicUrl, imageUrl, settings);
 };
-// Zip file processing function
+
 $("#zip-file").onchange = async function(event) {
     const file = event.target.files[0];
     if (!file) return;
-
-    // Check if file is zip or pez
-    if (!file.name.toLowerCase().endsWith('.zip') && !file.name.toLowerCase().endsWith('.pez')) {
-        alert("Please select a .zip or .pez file");
-        return;
-    }
 
     setLoadingMessage('Extracting zip file...');
     loadingOverlay.style.display = "flex";
@@ -942,33 +1378,24 @@ $("#zip-file").onchange = async function(event) {
         const zip = new JSZip();
         const zipData = await zip.loadAsync(file);
         
-        // Find files with specific extensions
         const files = {};
         
         for (const [filename, zipEntry] of Object.entries(zipData.files)) {
             if (!zipEntry.dir) {
                 const ext = filename.toLowerCase().split('.').pop();
                 
-                // Check for chart files
                 if (ext === 'json' || ext === 'pec') {
                     files.chart = { filename, zipEntry };
-                }
-                // Check for music files
-                else if (ext === 'ogg' || ext === 'mp3' || ext === 'wav') {
+                } else if (ext === 'ogg' || ext === 'mp3' || ext === 'wav') {
                     files.music = { filename, zipEntry };
-                }
-                // Check for image files
-                else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+                } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
                     files.image = { filename, zipEntry };
-                }
-                // Check for chart info files
-                else if (ext === 'csv') {
+                } else if (ext === 'csv') {
                     files.info = { filename, zipEntry };
                 }
             }
         }
 
-        // Create File objects from zip entries and populate file inputs
         for (const [type, fileInfo] of Object.entries(files)) {
             const blob = await fileInfo.zipEntry.async('blob');
             const extractedFile = new File([blob], fileInfo.filename, { type: blob.type });
@@ -989,18 +1416,13 @@ $("#zip-file").onchange = async function(event) {
             }
         }
 
-        // Helper function to create FileList
         function createFileList(files) {
             const dt = new DataTransfer();
             files.forEach(file => dt.items.add(file));
             return dt.files;
         }
 
-        setLoadingMessage('Zip file extracted successfully!');
-        setTimeout(() => {
-            loadingOverlay.style.display = "none";
-        }, 1000);
-
+        loadingOverlay.style.display = "none";
     } catch (error) {
         console.error('Error extracting zip file:', error);
         alert('Error extracting zip file: ' + error.message);
