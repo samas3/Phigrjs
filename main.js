@@ -1067,7 +1067,7 @@ async function init() {
     C.click_sounds[C.note.hold] = C.click_sounds[C.note.tap];
     C.click_sounds[C.note.drag] = await load_audio("./res/drag.ogg");
     C.click_sounds[C.note.flick] = await load_audio("./res/flick.ogg");
-    C.ending = await load_audio('/res/ending.mp3');
+    C.ending = await load_audio("./res/ending.mp3");
 
     C.note_imgs.click = await load_img("./res/click.png");
     C.note_imgs.drag = await load_img("./res/drag.png");
