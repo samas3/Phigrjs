@@ -1063,23 +1063,23 @@ async function init() {
     cv.width = document.body.clientWidth;
     cv.height = document.body.clientHeight;
 
-    C.click_sounds[C.note.tap] = await load_audio("/res/click.ogg");
+    C.click_sounds[C.note.tap] = await load_audio("./res/click.ogg");
     C.click_sounds[C.note.hold] = C.click_sounds[C.note.tap];
-    C.click_sounds[C.note.drag] = await load_audio("/res/drag.ogg");
-    C.click_sounds[C.note.flick] = await load_audio("/res/flick.ogg");
+    C.click_sounds[C.note.drag] = await load_audio("./res/drag.ogg");
+    C.click_sounds[C.note.flick] = await load_audio("./res/flick.ogg");
     C.ending = await load_audio('/res/ending.mp3');
 
-    C.note_imgs.click = await load_img("/res/click.png");
-    C.note_imgs.drag = await load_img("/res/drag.png");
-    C.note_imgs.hold = await load_img("/res/hold.png");
-    C.note_imgs.flick = await load_img("/res/flick.png");
+    C.note_imgs.click = await load_img("./res/click.png");
+    C.note_imgs.drag = await load_img("./res/drag.png");
+    C.note_imgs.hold = await load_img("./res/hold.png");
+    C.note_imgs.flick = await load_img("./res/flick.png");
 
-    C.note_imgs.click_mh = await load_img("/res/click_mh.png");
-    C.note_imgs.drag_mh = await load_img("/res/drag_mh.png");
-    C.note_imgs.hold_mh = await load_img("/res/hold_mh.png");
-    C.note_imgs.flick_mh = await load_img("/res/flick_mh.png");
+    C.note_imgs.click_mh = await load_img("./res/click_mh.png");
+    C.note_imgs.drag_mh = await load_img("./res/drag_mh.png");
+    C.note_imgs.hold_mh = await load_img("./res/hold_mh.png");
+    C.note_imgs.flick_mh = await load_img("./res/flick_mh.png");
 
-    C.respack_info = await load_json("/res/respack.json");
+    C.respack_info = await load_json("./res/respack.json");
 
     [C.note_imgs.hold_head, C.note_imgs.hold_body, C.note_imgs.hold_tail] = clip_hold(C.note_imgs.hold, C.respack_info.holdAtlas);
     [C.note_imgs.hold_mh_head, C.note_imgs.hold_mh_body, C.note_imgs.hold_mh_tail] = clip_hold(C.note_imgs.hold_mh, C.respack_info.holdAtlasMH);
@@ -1095,7 +1095,7 @@ async function init() {
     C.hold_body_imgs = [C.note_imgs.hold_body, C.note_imgs.hold_mh_body];
     C.hold_tail_imgs = [C.note_imgs.hold_tail, C.note_imgs.hold_mh_tail];
 
-    C.hit_fx = await load_img("/res/hit_fx.png");
+    C.hit_fx = await load_img("./res/hit_fx.png");
 
     for (let j = 0; j < C.respack_info.hitFx[1]; j++) {
         for (let i = 0; i < C.respack_info.hitFx[0]; i++) {
@@ -1275,7 +1275,7 @@ async function load(chart, data, music, image, settings) {
 
         // cv.requestFullscreen();
         C.chart.music.play();
-        const font = new FontFace('Saira', 'url(/css/font.ttf)')
+        const font = new FontFace('Saira', 'url(./css/font.ttf)')
         font.load().then(f => {
             document.fonts.add(f);
         }).then(() => {
@@ -1354,7 +1354,7 @@ $("#load-button").onclick = () => {
     }
     let infoUrl;
     if (!infoFile) {
-        infoUrl = "/res/info.csv";
+        infoUrl = "./res/info.csv";
     } else {
         infoUrl = URL.createObjectURL(infoFile);
     }
