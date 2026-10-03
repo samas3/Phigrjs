@@ -67,9 +67,9 @@ class AnimationController {
 
     pause() {
         this.audioElement.pause();
-        if (C.settings.autoPlay) {
+        // if (C.settings.autoPlay) {
             this.progressContainer.style.display = "block";
-        }
+        // }
         this.updateProgress();
     }
     

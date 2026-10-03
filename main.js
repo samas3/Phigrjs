@@ -543,13 +543,12 @@ const render = () => {
                     ctx.fillTextEx(`Note ${note.id}${('tdhf')[note.type - 1]} Time=${format_number(line.sec2beat(note.sect))}s isAbove=${note.is_above} isFake=${note.isFake} Speed=${format_number(note.speed)} Alpha=${note.alpha}`, 0, 0, `${0.03 * h}px Saira`, 'white', 'top left');
                 }
 
+                if (controller.isPaused && C.settings.autoPlay) {
+                    note.judged = false;
+                    if (controller.progressUpdating) note.clicked = false;
+                }
 
                 if (C.settings.autoPlay) {
-                    if (controller.isPaused) {
-                        note.judged = false;
-                        if (controller.progressUpdating) note.clicked = false;
-                    }
-                    
                     if (!note.isFake && !note.judged && !controller.isPaused) {
                         if (note.sect < t && !note.clicked && !controller.isPaused) {
                             if (note.type === C.note.hold) {
@@ -665,12 +664,8 @@ const render = () => {
                         note.played_sound = true;
                     }
                     if (effect_t > t) break;
-                    if (!C.settings.autoPlay) effect_t = note.judgeTime;
-                    if (note.type !== C.note.hold) {
-                        if (effect_t + effect_dur < t) continue;
-                    } else {
-                        if (!C.settings.autoPlay && !note.pressing || note.judged) continue;
-                    }
+                    if (!C.settings.autoPlay && note.type !== C.note.hold) effect_t = note.judgeTime;
+                    if (effect_t + effect_dur < t) continue;
 
                     const [ pars, pos_getter ] = note.get_click_effect(w, h);
                     let [ x, y ] = pos_getter(effect_t);
@@ -1197,7 +1192,6 @@ async function load(chart, data, music, image, settings) {
             note.id = `${line.id}_${i}`;
             note.master = line;
 
-            note.headJudged = false;
             note.hitColor = C.pcolor;
             if (!note.isFake) manager.allNotes.push(note);
 
@@ -1247,18 +1241,19 @@ async function load(chart, data, music, image, settings) {
             };
 
             if (!note.isFake) {
-                C.chart.data.click_effect_collection.push([ note, note.sect ]);
+                if (note.is_hold) {
+                    const dt = 30 / line.bpm;
+                    let st = note.sect;
+                    while (st < note.hold_end_time) {
+                        C.chart.data.click_effect_collection.push([ note, st ]);
+                        st += dt;
+                    }
+                } else {
+                    C.chart.data.click_effect_collection.push([ note, note.sect ]);
+                }
                 C.chart.data.numOfNotes++;
             }
 
-            /*if (note.is_hold) {
-                const dt = 30 / line.bpm;
-                let st = note.sect + dt;
-                while (st < note.hold_end_time) {
-                    C.chart.data.click_effect_collection.push([ note, st ]);
-                    st += dt;
-                }
-            }*/
         }
     }
 
