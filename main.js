@@ -19,6 +19,7 @@ const C = {
     palpha: 0xe1 / 0xff,
     click_sounds: {},
     note_imgs: {},
+    rating_imgs: [],
     chart: {},
     hit_fx_perfect: [],
     hit_fx_good: [],
@@ -938,7 +939,7 @@ const drawEndUI = () => {
     const [w, h] = [cv.width, cv.height];
     const ctx = cv.getContext("2d");
     
-    const songName = C.chart.info.Name || "Unknown Song";
+    const songName = C.chart.info.Name || "UK";
     const score = Math.round(manager.score);
     const acc = (manager.acc * 100).toFixed(2);
     const perfect = manager.perfect;
@@ -957,14 +958,14 @@ const drawEndUI = () => {
     const avgErr = Math.round(manager.avgError * 1000);
     
     let rating = "";
-    let ratingColor = "white";
+    // let ratingColor = "white";
     
     if (fcapStatus === 2) {
-        rating = "φ";
-        ratingColor = "gold";
+        rating = "Phi";
+        // ratingColor = "gold";
     } else if (fcapStatus === 1) {
         rating = "V";
-        ratingColor = "#a2eeff";
+        // ratingColor = "#a2eeff";
     } else {
         if (score >= 960000) {
             rating = "V";
@@ -980,6 +981,7 @@ const drawEndUI = () => {
             rating = "F";
         }
     }
+    let rating_pic = C.rating_imgs[rating];
     
     const leftWidth = 0.6 * w;
     
@@ -1016,7 +1018,7 @@ const drawEndUI = () => {
     const rightStartX = leftWidth + 0.05 * h;
     const rightEndX = w - 0.05 * h;
     
-    ctx.fillTextEx(rating, rightEndX, 0.15 * h, `${0.12 * h}px Saira`, ratingColor, "top right");
+    ctx.drawImage(rating_pic, rightEndX - 0.12 * h, 0.15 * h, 0.12 * h, 0.12 * h);
     
     ctx.fillTextEx(score.toString().padStart(7, '0'), rightEndX, 0.3 * h, `${0.05 * h}px Saira`, "white", "top right");
     
@@ -1073,6 +1075,10 @@ async function init() {
     C.note_imgs.drag_mh = await load_img("./res/drag_mh.png");
     C.note_imgs.hold_mh = await load_img("./res/hold_mh.png");
     C.note_imgs.flick_mh = await load_img("./res/flick_mh.png");
+
+    for (let i of ["Phi", "FC", "V", "S", "A", "B", "C", "F"]) {
+        C.rating_imgs[i] = await load_img(`./res/${i}.png`);
+    }
 
     C.respack_info = await load_json("./res/respack.json");
 
