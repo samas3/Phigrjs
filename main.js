@@ -23,6 +23,7 @@ const C = {
     chart: {},
     hit_fx_perfect: [],
     hit_fx_good: [],
+    settings: {traceList: []},
     note_bad: null,
     judgeTime: [0.08, 0.16, 0.18], // p, g, b
     perfect_max: 0.04,
@@ -510,6 +511,8 @@ const render = () => {
         if (C.settings.showTiming) {
             ctx.fillTextEx(statusText, 0.01 * w, 0.02 * h, `${0.02 * h}px Saira`, 'white', 'top left');
         }
+        let traceNotes = [];
+        let traceLines = [];
 
         for (const line of C.chart.data.judgeLineList) {
             let [ texture, shown, lineRotate, lineX, lineY, lineAlpha, color, scaleX, scaleY ] = line.get_state(t);
@@ -540,8 +543,8 @@ const render = () => {
             const linefp = get_fp(beatt, line.speedEvents);
 
             for (const note of line.notes) {
-                if (C.settings.traceID && note.id === C.settings.traceID) {
-                    ctx.fillTextEx(`Note ${note.id}${('tdhf')[note.type - 1]} Time=${format_number(line.sec2beat(note.sect))}s isAbove=${note.is_above} isFake=${note.isFake} Speed=${format_number(note.speed)} Alpha=${note.alpha}`, 0, 0, `${0.03 * h}px Saira`, 'white', 'top left');
+                if (C.settings.traceList.includes(note.id)) {
+                    traceNotes.push(note);
                 }
 
                 if (controller.isPaused && C.settings.autoPlay) {
@@ -574,7 +577,7 @@ const render = () => {
                 if (
                     (note.visibleTime && (note.sect - t > note.visibleTime)) ||
                     (lineAlpha < 0) ||
-                    (!note.is_hold && note_fp < -1e6 || note_fp > h * 2) ||
+                    (!note.is_hold && note_fp < -1e-3 || note_fp > h * 2) ||
                     (note.type !== C.note.hold && note.judged)
                 ) continue;
 
@@ -645,12 +648,23 @@ const render = () => {
                     }
                 }
             }
-            if (C.settings.traceID && line.id === C.settings.traceID) {
-                let state = line.get_state(t);
-                let beatt = line.sec2beat(t);
-                let fp = get_fp(beatt, line.speedEvents);
-                ctx.fillTextEx(`Line ${line.id} Time=${format_number(beatt)} FP=${format_number(fp)} BPM=${line.bpm} Pos=(${format_number(state[3])}, ${format_number(state[4])}) Rot=${format_number(state[2])} Alpha=${format_number(state[5])} Scale=${format_number(state[7])}x${format_number(state[8])}`, 0, 0, `${0.03 * h}px Saira`, 'white', 'top left');
+            if (C.settings.traceList.includes(line.id)) {
+                traceLines.push(line);
             }
+        }
+        
+        let cnt = 0;
+        for (let note of traceNotes) {
+            let line = note.master;
+            ctx.fillTextEx(`Note ${note.id}${('tdhf')[note.type - 1]} Time=${format_number(line.sec2beat(note.sect))} FP=${format_number(note.floorPosition)} isAbove=${note.is_above} isFake=${note.isFake} Speed=${format_number(note.speed)} Alpha=${note.alpha}`, 0, 0.03 * h * cnt, `${0.03 * h}px Saira`, 'white', 'top left');
+            cnt++;
+        }
+        for (let line of traceLines) {
+            let state = line.get_state(t);
+            let beatt = line.sec2beat(t);
+            let fp = get_fp(beatt, line.speedEvents);
+            ctx.fillTextEx(`Line ${line.id} Time=${format_number(beatt)} FP=${format_number(fp)} BPM=${line.bpm} Pos=(${format_number(state[3])}, ${format_number(state[4])}) Rot=${format_number(state[2])} Alpha=${format_number(state[5])} Scale=${format_number(state[7])}x${format_number(state[8])}`, 0, 0.03 * h * cnt, `${0.03 * h}px Saira`, 'white', 'top left');
+            cnt++;
         }
 
         if (!C.settings.autoPlay) processJudge(t);
@@ -659,7 +673,7 @@ const render = () => {
             let effect_dur;
             for (let [note, effect_t] of C.chart.data.click_effect_collection) {
                 if (note.clicked && !note.isFake) {
-                    effect_dur = note.type === C.note.hold ? 30 / note.master.bpm : 0.5;
+                    effect_dur = note.type === C.note.hold ? 60 / note.master.bpm : 0.5;
                     if (!note.played_sound) {
                         play_sound(C.click_sounds[note.type]);
                         note.played_sound = true;
@@ -1156,7 +1170,8 @@ async function load(chart, data, music, image, settings) {
 
     const note_sect_counter = new Map();
     C.chart.data.numOfNotes = 0;
-    C.settings = settings;
+    Object.assign(C.settings, settings);
+    C.settings.traceList = C.settings.traceID.split(",");
     controller = new AnimationController(C.chart.music, C.settings.maxFps);
     manager = new JudgeManager(0);
 
@@ -1193,6 +1208,8 @@ async function load(chart, data, music, image, settings) {
             note.hold_end_time = note.sect + note.secht;
             note.hold_length = note.secht * note.speed * C.units.pgrh;
             note.is_hold = note.type === C.note.hold;
+            note.isFake = note.isFake || false;
+            note.alpha = note.alpha ?? 255;
             note.clicked = false;
             note.judged = false;
             note.id = `${line.id}_${i}`;
@@ -1248,7 +1265,7 @@ async function load(chart, data, music, image, settings) {
 
             if (!note.isFake) {
                 if (note.is_hold) {
-                    const dt = 30 / line.bpm;
+                    const dt = 60 / line.bpm;
                     let st = note.sect;
                     while (st < note.hold_end_time) {
                         C.chart.data.click_effect_collection.push([ note, st ]);
