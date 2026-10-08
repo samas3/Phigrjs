@@ -5,8 +5,8 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="./css/style.css">
-        <script src="./js/tween.js"></script>
-        <script src="./js/bezier.js"></script>
+        <script src="./js/util.js"></script>
+        <script src="./js/blockArea.js"></script>
         <script src="./js/pec2json.js"></script>
         <script src="./js/jszip.js"></script>
         <script src="./js/animation.js"></script>
@@ -94,13 +94,28 @@
                     </div>
                     <div class="setting-item">
                         <label>
-                            Tracing <input id="traceID" type="text">
+                            <input type="checkbox" id="showBlockArea" checked> Show Block Areas
                         </label>
                     </div>
                     <div class="setting-item">
                         <label>
-                            Max FPS <input id="maxFps" type="number" value="60">
+                            Tracing <input id="traceID" type="text">
                         </label>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-item">
+                        <label>
+                            Background Blur <input id="blurriness" type="number" value="0.5">
+                        </label>
+                        <label>
+                            Playback Speed <input id="speed" type="number" value="1" step="0.1" min="0.1" max="10">
+                        </label>
+                        <div class="setting-item">
+                            <label>
+                                Max FPS <input id="maxFps" type="number" value="60">
+                            </label>
+                        </div>
                     </div>
                 </div>
                 <button id="close-settings">Close</button>

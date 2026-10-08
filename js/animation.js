@@ -15,6 +15,7 @@ class AnimationController {
         this.lastFrameTime = 0;
 
         this.progressUpdating = false;
+        this.speed = 1;
         this.progressBar.addEventListener("input", () => {
             if (this.audioElement.duration) {
                 const seekTime = this.audioElement.duration * (this.progressBar.value / 100);
@@ -87,6 +88,11 @@ class AnimationController {
             this.pause();
         }
         this.isPaused = !this.isPaused;
+    }
+
+    setSpeed(speed) {
+        this.speed = speed;
+        this.audioElement.playbackRate = speed;
     }
     
     updateCurrentFps(currentTime) {
