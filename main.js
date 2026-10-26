@@ -20,6 +20,7 @@ const C = {
     click_sounds: {},
     note_imgs: {},
     rating_imgs: [],
+    files: {chart: [], info: [], music: [], image: []},
     chart: {},
     hit_fx_perfect: [],
     hit_fx_good: [],
@@ -692,7 +693,6 @@ async function load(chart, data, music, image, settings) {
     C.chart.music = await load_audioele(music);
     setLoadingMessage('Loading image...');
     C.chart.raw_image = await load_img(image);
-    console.log(C.settings.blurriness)
     C.chart.image = get_blur_img(C.chart.raw_image, parseFloat(C.settings.blurriness) * 0.1);
 
     C.chart.music.style.display = "none";
@@ -891,10 +891,31 @@ $("#close-settings").onclick = () => {
 $("#load-button").onclick = () => {
     const loadingOverlay = $("#loading-overlay");
 
-    const infoFile = $("#chart-file").files[0];
-    const chartFile = $("#data-file").files[0];
-    const musicFile = $("#music-file").files[0];
-    const imageFile = $("#image-file").files[0];
+    let infoFile = $("#info-file").value;
+    let chartFile = $("#chart-file").value;
+    let musicFile = $("#music-file").value;
+    let imageFile = $("#image-file").value;
+    for (const [type, files] of Object.entries(C.files)) {
+        for (const file of files) {
+            if (file.name === $(`#${type}-file`).value) {
+                switch(type) {
+                    case "info":
+                        infoFile = file;
+                        break;
+                    case "chart":
+                        chartFile = file;
+                        break;
+                    case "music":
+                        musicFile = file;
+                        break;
+                    case "image":
+                        imageFile = file;
+                        break;
+                }
+                break;
+            }
+        }
+    }
 
     if (!chartFile || !musicFile || !imageFile) {
         alert("Please select all files.");
@@ -915,67 +936,63 @@ $("#load-button").onclick = () => {
     load(infoUrl, chartUrl, musicUrl, imageUrl, settings);
 };
 
-$("#zip-file").onchange = async function(event) {
+$("#input-file").onchange = async function(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    setLoadingMessage('Extracting zip file...');
+    setLoadingMessage('Uploading file...');
     loadingOverlay.style.display = "flex";
-
-    try {
-        const zip = new JSZip();
-        const zipData = await zip.loadAsync(file);
-        
-        const files = {};
-        
-        for (const [filename, zipEntry] of Object.entries(zipData.files)) {
-            if (!zipEntry.dir) {
-                const ext = filename.toLowerCase().split('.').pop();
-                
-                if (ext === 'json' || ext === 'pec') {
-                    files.chart = { filename, zipEntry };
-                } else if (ext === 'ogg' || ext === 'mp3' || ext === 'wav') {
-                    files.music = { filename, zipEntry };
-                } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
-                    files.image = { filename, zipEntry };
-                } else if (ext === 'csv') {
-                    files.info = { filename, zipEntry };
+    const ext = file.type;
+    if (ext == "application/x-zip-compressed") {
+        try {
+            const zip = new JSZip();
+            const zipData = await zip.loadAsync(file);
+            const files = {chart: [], music: [], image: [], info: []};
+            
+            for (const [filename, zipEntry] of Object.entries(zipData.files)) {
+                if (!zipEntry.dir) {
+                    const ext = filename.toLowerCase().split('.').pop();
+                    
+                    if (ext === 'json' || ext === 'pec') {
+                        files.chart.push({ filename, zipEntry });
+                    } else if (ext === 'ogg' || ext === 'mp3' || ext === 'wav') {
+                        files.music.push({ filename, zipEntry });
+                    } else if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+                        files.image.push({ filename, zipEntry });
+                    } else if (ext === 'csv') {
+                        files.info.push({ filename, zipEntry });
+                    }
                 }
             }
-        }
 
-        for (const [type, fileInfo] of Object.entries(files)) {
-            const blob = await fileInfo.zipEntry.async('blob');
-            const extractedFile = new File([blob], fileInfo.filename, { type: blob.type });
-            
-            switch(type) {
-                case 'chart':
-                    $("#data-file").files = createFileList([extractedFile]);
-                    break;
-                case 'music':
-                    $("#music-file").files = createFileList([extractedFile]);
-                    break;
-                case 'image':
-                    $("#image-file").files = createFileList([extractedFile]);
-                    break;
-                case 'info':
-                    $("#chart-file").files = createFileList([extractedFile]);
-                    break;
+            for (const [type, list] of Object.entries(files)) {
+                for (const fileInfo of list) {
+                    const blob = await fileInfo.zipEntry.async('blob');
+                    const extractedFile = new File([blob], fileInfo.filename, { type: blob.type });
+                    C.files[type].push(extractedFile);
+                }
             }
+        } catch (error) {
+            console.error('Error extracting zip file:', error);
+            alert('Error extracting zip file: ' + error.message);
         }
-
-        function createFileList(files) {
-            const dt = new DataTransfer();
-            files.forEach(file => dt.items.add(file));
-            return dt.files;
-        }
-
-        loadingOverlay.style.display = "none";
-    } catch (error) {
-        console.error('Error extracting zip file:', error);
-        alert('Error extracting zip file: ' + error.message);
-        loadingOverlay.style.display = "none";
+    } else if (ext == "text/csv") {
+        C.files["info"].push(file);
+    } else if (ext.includes("audio/")) {
+        C.files["music"].push(file);
+    } else if (ext.includes("image/")) {
+        C.files["image"].push(file);
+    } else { // maybe chart
+        C.files["chart"].push(file);
     }
+    for (const [type, files] of Object.entries(C.files)) {
+        $(`#${type}-file`).options.length = 0;
+        for (const file of files) {
+            $(`#${type}-file`).add(new Option(file.name, file.name));
+        }
+    }
+
+    loadingOverlay.style.display = "none";
 };
 
 window.onload = () => {
